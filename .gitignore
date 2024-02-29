@@ -1,3 +1,8 @@
 # folder
 .DS_Store
 .idea
+/gaze_dataset
+.vscode
+Extracted_HOFeatures/hand
+Extracted_HOFeatures/object
+gaze_preprocessing/extracted_gaze
