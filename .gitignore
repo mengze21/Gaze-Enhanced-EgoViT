@@ -3,6 +3,10 @@
 .idea
 /gaze_dataset
 .vscode
+__pycache__
 Extracted_HOFeatures/hand
 Extracted_HOFeatures/object
 gaze_preprocessing/extracted_gaze
+get_images_from_video/images
+gaze_video
+Frames
