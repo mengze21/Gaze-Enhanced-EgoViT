@@ -77,7 +77,7 @@ def parse_args():
                         default="models")
     parser.add_argument('--image_dir', dest='image_dir',
                         help='directory to load images for demo',
-                        default="/scratch/users/lu/msc2024_mengze/gaze_dataset/hand14k/Images")
+                        default="images")
     parser.add_argument('--save_dir', dest='save_dir',
                         help='directory to save results',
                         default="images_det")
@@ -164,7 +164,11 @@ def _get_image_blob(im):
 
 def save_data(box, features, image_name, handdata):
     current_wording_dir = os.getcwd()
+    # print(f"current_wording_dir is: {current_wording_dir}")
+    # Get the base name of the image
+    image_name = os.path.basename(image_name)
     image_name, _ = os.path.splitext(image_name)
+    # print(f"image_name is: {image_name}")
     # Move one directory up
     current_wording_dir = os.path.dirname(current_wording_dir)
 
@@ -199,7 +203,6 @@ def save_data(box, features, image_name, handdata):
         #
         # # Save the DataFrame to a text file
         # df.to_csv(path_to_save, index=False)
-
 
 
 if __name__ == '__main__':
@@ -285,9 +288,15 @@ if __name__ == '__main__':
 
     # List all files in the image directory
     imglist = os.listdir(args.image_dir)
+    # print(f"imglist is: {imglist}")
+    # # Filter out files with just .jpg extension(for macOS could .DS_Store in imglist)
+    # imglist = [file for file in imglist if file.lower().endswith('.jpg')]
 
-    # Filter out files with just .jpg extension(for macOS could .DS_Store in imglist)
-    imglist = [file for file in imglist if file.lower().endswith('.jpg')]
+    for root, dirs, files in os.walk(args.image_dir):
+        for file in files:
+            if file.lower().endswith('.jpg'):
+                imglist.append(os.path.join(root, file))
+                
     # Determine the number of .jpg images in the list
     num_images = len(imglist)
 
