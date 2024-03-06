@@ -4,6 +4,9 @@
 
 
 import subprocess
+import os
+
+from VideoFramSaver import VideoFrameSaver
 
 
 def main():
@@ -28,11 +31,30 @@ def main():
                        cwd=hand_object_detector)
         
     elif module == "HOExtractor":
-        subprocess.run(["python3", HOExtractor, "--cuda" if cuda else ""], cwd=hand_object_detector)
+        subprocess.run(["python3", HOExtractor, "--cuda" if cuda else "", "--image_dir=/scratch/users/lu/msc2024_mengze/Frames"], cwd=hand_object_detector)
 
     else:
         print("Invalid module name")
 
+def extrct_frames():
+    input_folder = "gaze_dataset/cropped_clips"
+    output_base_folder = "Frames"
+    new_directory = "/scratch/users/lu/msc2024_mengze"
+    os.chdir(new_directory)
+    frame_saver = VideoFrameSaver(input_folder, output_base_folder)
+    frame_saver.process_videos()
 
 if __name__ == "__main__":
-    main()
+
+    # select the module to run 1 for main, 2 for extracting_frames, 3 for both
+    module = 1
+    if module == 1:
+        main()
+    elif module == 2:
+        extrct_frames()
+        print("Frames extracted!")
+    elif module == 3:
+        extrct_frames()
+        print("Frames extracted!")
+        main()
+
