@@ -27,8 +27,8 @@ class VideoFrameSaver:
 
     def save_frame(self, video_path, relative_path, video_name):
         # # if we want to save the frames in a separate folder for each video
-        # output_folder = os.path.join(self.output_base_folder, relative_path, video_name)
-        output_folder = self.output_base_folder
+        output_folder = os.path.join(self.output_base_folder, relative_path, video_name)
+        # output_folder = self.output_base_folder
         print(f"Output folder: {output_folder}")
         print(f"Video name: {video_name}")
         print(f"Video path: {video_path}")
@@ -36,7 +36,10 @@ class VideoFrameSaver:
         # Check if the output folder exists; if not, create it
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
-
+        # parse the path parts to get start frame number of the video
+        path_parts = video_name.split("-")
+        start_frame = int(path_parts[-2].replace("F", ""))
+        print(f"Start frame: {start_frame}")
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             print("Error: Could not open video.")
@@ -46,20 +49,20 @@ class VideoFrameSaver:
         interval = max(1, total_frames // self.frame_samples)
 
         frame_count = 0
-        saved_frame_count = 0
         spinner = itertools.cycle(['-', '/', '|', '\\'])
 
-        for i in range(0, total_frames, interval):
+        for i in range(0, total_frames, interval + 1):
             cap.set(cv2.CAP_PROP_POS_FRAMES, i)
             ret, frame = cap.read()
             if not ret:
                 print("\nReached end of video or error reading a frame. Exiting.")
                 break
-
-            output_path = os.path.join(output_folder, f"{video_name}_{saved_frame_count}.jpg")
-            # print(f"outpu_path")
+            saved_frame_number = start_frame + i
+            # output_path = os.path.join(output_folder, video_name, f"{video_name}_{saved_frame_count}.jpg")
+            # save the frame with the frame number
+            output_path = os.path.join(output_folder,f"{video_name}_{saved_frame_number}.jpg")
+            print(f"outpu_path {output_path}")
             cv2.imwrite(output_path, frame)
-            saved_frame_count += 1
 
             sys.stdout.write(f"\rProcessed {frame_count + 1}/{total_frames} frames {next(spinner)}")
             sys.stdout.flush()
@@ -79,7 +82,7 @@ class VideoFrameSaver:
         for video_path, relative_path in video_files:
             # use the following line to process given number of videos for testing
             if video_num == 3:
-                print("Only process 3 videos for testing and exit.")
+                print(f"Only process {video_num} videos for testing and exit.")
                 break
             print(f"Processing {video_num + 1}/{len(video_files)} video.")
             video_name = os.path.splitext(os.path.basename(video_path))[0]
