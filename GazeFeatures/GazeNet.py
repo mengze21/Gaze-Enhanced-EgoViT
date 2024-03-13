@@ -53,9 +53,9 @@ class GazeNet(nn.Module):
         return x
 
 
-gaze_feature = GazeNet()
+# gaze_feature = GazeNet()
 
-x = torch.rand(1, 3, 150, 150)
-print(gaze_feature(x).shape)
-y = gaze_feature(x)
-print(y)
+# x = torch.rand(1, 3, 150, 150)
+# print(gaze_feature(x).shape)
+# y = gaze_feature(x)
+# print(y)
