@@ -41,6 +41,7 @@ def window_partition(x, window_size):
         windows: (B*num_windows, window_size*window_size, C)
     """
     B, D, H, W, C = x.shape
+    # print(f"B: {B}, D: {D}, H: {H}, W: {W}, C: {C}")
     x = x.view(B, D // window_size[0], window_size[0], H // window_size[1], window_size[1], W // window_size[2], window_size[2], C)
     windows = x.permute(0, 1, 3, 5, 2, 4, 6, 7).contiguous().view(-1, reduce(mul, window_size), C)
     return windows
@@ -218,6 +219,7 @@ class SwinTransformerBlock3D(nn.Module):
         pad_r = (window_size[2] - W % window_size[2]) % window_size[2]
         x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b, pad_d0, pad_d1))
         _, Dp, Hp, Wp, _ = x.shape
+
         # cyclic shift
         if any(i > 0 for i in shift_size):
             shifted_x = torch.roll(x, shifts=(-shift_size[0], -shift_size[1], -shift_size[2]), dims=(1, 2, 3))
@@ -227,6 +229,7 @@ class SwinTransformerBlock3D(nn.Module):
             attn_mask = None
         # partition windows
         x_windows = window_partition(shifted_x, window_size)  # B*nW, Wd*Wh*Ww, C
+
         # W-MSA/SW-MSA
         attn_windows = self.attn(x_windows, mask=attn_mask)  # B*nW, Wd*Wh*Ww, C
         # merge windows
@@ -536,11 +539,11 @@ class Stage1(nn.Module):
         self.window_size = window_size
         self.patch_size = patch_size
 
-        self.dctg = DCTG(embed_dim=64)
+        self.dctg = DCTG(embed_dim=self.embed_dim)
 
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed3D(
-            patch_size=patch_size, in_chans=in_chans, embed_dim=64,
+            patch_size=patch_size, in_chans=in_chans, embed_dim=self.embed_dim,
             norm_layer=norm_layer if self.patch_norm else None)
         
         self.pos_drop = nn.Dropout(p=drop_rate)
@@ -563,16 +566,16 @@ class Stage1(nn.Module):
                 attn_drop=attn_drop_rate,
                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                 norm_layer=norm_layer,
-                downsample=PatchMerging if i_layer<self.num_layers-1 else None,
+                downsample=PatchMerging if i_layer<self.num_layers-2 else None,
                 use_checkpoint=use_checkpoint)
             self.layers.append(layer) 
 
-        self.num_features = int(embed_dim * 2**(self.num_layers-1))
+        self.num_features = int(embed_dim * 2**(self.num_layers-2))
 
         # add a norm layer for each output
         self.norm = norm_layer(self.num_features)
 
-    def create_class_token_map(self, patches, class_token):
+    def create_class_token_map1(self, patches, class_token):
         """
         Create the class token map.
 
@@ -592,6 +595,26 @@ class Stage1(nn.Module):
         X_cls = torch.cat((class_tokens_expanded, patches), dim=1)
 
         return X_cls
+    
+    def create_class_token_map(self, x, x_cls):
+        """
+        Create the class token map.
+
+        Args:
+        x: A tensor of shape (N, C, T, H, W), where N is the batch size and C is the dimension of features.
+        x_cls: A tensor of shape (N, C), where C is the dimension of class tokens.
+
+        Returns:
+            x_cls: A tensor of shape (N, C, T, H, W), where the first T elements are class tokens for each window.
+        """
+        B, C, T, H, W = x.shape
+
+        x_cls = x_cls.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        x_cls = x_cls.expand(-1, -1, -1, H, W)
+        x = torch.cat((x_cls, x), dim=2)
+
+        return x
+
 
     def forward(self, x, features):
         """Forward function."""
@@ -607,9 +630,9 @@ class Stage1(nn.Module):
         for layer in self.layers:
             x = layer(x.contiguous())
         print(f"x after layers shape: {x.shape}")
-        # x = rearrange(x, 'n c d h w -> n d h w c')
-        # x = self.norm(x)
-        # x = rearrange(x, 'n d h w c -> n c d h w')
+        x = rearrange(x, 'n c d h w -> n d h w c')
+        x = self.norm(x)
+        x = rearrange(x, 'n d h w c -> n c d h w')
 
         return x
 
@@ -669,34 +692,275 @@ class Stage2(nn.Module):
             self.norm = norm_layer(self.num_features)
 
         def forward(self, x):
-            """Forward function."""
+            """Forward function.
+                Returns: x_cls: A tensor of shape (B, C, Hi, Wi), where B is the batch size and C is the dimension of class tokens.
+            """
+
             x = self.layer4(x)
             print(f"x after layer4 shape: {x.shape}")
             x = rearrange(x, 'n c d h w -> n d h w c')
             x = self.norm(x)
             x = rearrange(x, 'n d h w c -> n c d h w')
-            return x
+
+            # get the class token map
+            x_cls = x[:, :, 0, :, :]
+
+            # Reshape to (B, C, 1, 5, 6)
+            x_cls = x_cls.unsqueeze(2)
+
+            return x_cls
+        
 
 
 class PADM(nn.Module):
-    def __init__(self):
+    def __init__(self, G=4, embed_dim=128, window_size=(2,7,7)):
         super().__init__()
+
+        self.G = G
+        self.window_size = window_size
+        self.num_features = int(embed_dim * 2**3)
         # pool size (4, 1, 1) is only for G=4 window size (2,7,7)
-        self.avg_poll = nn.AvgPool3d(kernel_size=(4,1,1))
+        self.avg_poll1 = nn.AvgPool3d(kernel_size=(4,1,1))
+        self.avg_poll2 = nn.AvgPool3d(kernel_size=window_size)
+        self.downsample = PatchMerging(dim=512, norm_layer=nn.LayerNorm)
+
+
+    def pad_to_target(self,tensor):
+        """
+        Pad the last two dimensions (H, W) of a tensor to 14 if either is larger than 7,
+        otherwise pad to 7. Only the last two dimensions are padded.
+
+        Args:
+        tensor (torch.Tensor): Input tensor of shape (B, G, C, D, H, W).
+
+        Returns:
+        torch.Tensor: Padded tensor.
+        """
+        B, G, C, D, H, W = tensor.size()
         
-    def forward(self, x_list):
-        # average pooling along temporal dimension for each group
-        x_list_avg = []
-        for x in x_list:
-            x_avg = self.avg_poll(x)
-            x_list_avg.append(x_avg)
-        # print(f"x1 shape is: {x_list_avg[0].shape}")
+        # Determine the target size for H and W
+        target_H = 14 if H > 7 else 7
+        target_W = 14 if W > 7 else 7
 
-        # concatenate the pooled features
-        x = torch.cat(x_list_avg, dim=1)
-        print(f"x shape is: {x.shape}")
+        # Calculate padding amounts for H and W
+        # Padding is applied symmetrically, so divide by 2
+        pad_H = (target_H - H) if H < target_H else 0
+        pad_W = (target_W - W) if W < target_W else 0
 
-        pass
+        # Pad only the last two dimensions (H, W)
+        # Padding order in F.pad for the last two dimensions is: left, right, top, bottom
+        pad = (pad_W // 2, pad_W - pad_W // 2, pad_H // 2, pad_H - pad_H // 2)
+        
+        # Apply padding
+        padded_tensor = F.pad(tensor, pad=pad, mode='constant', value=0)
+        
+        return padded_tensor
+    def padding(self, x_cls_group):
+        B, G, C, D, H, W = x_cls_group.shape
+        window_size = self.window_size
+
+        pad_l = pad_t = pad_d0 = 0
+        pad_d1 = (window_size[0] - D % window_size[0]) % window_size[0]
+        pad_b = (window_size[1] - H % window_size[1]) % window_size[1]
+        pad_r = (window_size[2] - W % window_size[2]) % window_size[2]
+        x_cls_group = F.pad(x_cls_group, (pad_l, pad_r, pad_t, pad_b, pad_d0, pad_d1))
+
+        return x_cls_group
+    
+    def partion_xcls(self, x_cls_group):
+        """
+        Args:
+            x: (B, G, C, D, H, W)
+            window_size (tuple[int]): window size
+
+        Returns:
+            windows: (B, G, C, D=1, H//window_size, W//window_size)
+        """
+        window_size = self.window_size
+        B, G, C, D, H, W = x_cls_group.shape
+
+        print(f"B: {B}, G:{G}, D: {D}, H: {H}, W: {W}, C: {C}")
+        x_cls_group = x_cls_group.view(B, G, C, D // window_size[0], window_size[0], H // window_size[1], window_size[1], W // window_size[2], window_size[2])
+        print(f"x_cls_group shape after view: {x_cls_group.shape}")
+        x_cls_windows = x_cls_group.permute(0, 1, 3, 5, 7, 4, 6, 8, 2).contiguous().view(B, G, D // window_size[0], H // window_size[1], W // window_size[2], reduce(mul, window_size), C)
+
+        print(f"x_cls_windows shape: {x_cls_windows.shape}")
+        return x_cls_windows
+    
+    def avgpool3d(self, x_cls_group):
+        """
+        Applies average pooling operation to the input tensor to get the x_cls.
+
+        Args:
+            x_cls_group (torch.Tensor): Input tensor of shape (B, G, C, D, H, W), where
+                                        B is the batch size, G is the number of groups,
+
+        Returns:
+            torch.Tensor: Output tensor after applying average pooling operation.
+                          The shape of the output tensor is (1, G, C, D', H', W'), where
+                          D' = D // window_size, H' = H // window_size, and W' = W // window_size.
+
+        """
+        window_size = self.window_size
+        B, G, C, D, H, W = x_cls_group.shape
+        x_cls_group = x_cls_group.view(B*G, C, D, H, W)
+        x_cls_group = self.avg_poll2(x_cls_group)
+        x_cls_group = x_cls_group.unsqueeze(0)
+        # print(f"x_cls_group shape after avg_pool3d: {x_cls_group.shape}")
+
+        return x_cls_group
+
+    def merge_cls(self, x):
+        num_groups, channels, depth, height, width = x.shape
+
+        # Reshape tensor to merge spatial dimensions
+        # Shape: [num_groups, channels, depth*height*width]
+        x_flat = x.view(num_groups, channels, -1)
+
+        # Compute L2 norms
+        l2norms = torch.linalg.norm(x_flat, ord=2, dim=2, keepdim=True)
+
+        # Normalize class tokens
+        x_normalized = x_flat / l2norms
+
+        # Compute dot products
+        scores = torch.einsum('gcd,gce->ge', x_normalized, x_normalized) 
+
+        # Mask diagonal to exclude self-comparison
+        diag_mask = torch.eye(num_groups, dtype=torch.bool)
+        scores[diag_mask] = 0
+
+        # # Sum over all spatial dimensions to get αg,s,g′
+        # alpha_gsgp = scores.sum(dim=1)  # Shape: [num_groups, num_groups]
+        # print(f"alpha_gsgp shape: {alpha_gsgp.shape} \n alpha_gsgp: {alpha_gsgp}")
+
+        # Sum over all groups 
+        alpha_gs = scores.sum(dim=0)  # Excluding self-group
+        # print(f"alpha_gs shape: {alpha_gs.shape} \n alpha_gs: {alpha_gs}")
+
+        # # Sum scores along group axis to get total score per group per class token
+        # alpha = scores.sum(dim=1)  # Shape: [num_groups]
+        
+        # Apply softmax to normalize scores
+        alpha_normalized = F.softmax(alpha_gs, dim=0)
+
+        # Weighted sum of class tokens along group axis
+        xcls_weighted = torch.einsum('gcs,g->cs', x_flat, alpha_normalized)
+
+
+        # Reshape to original size (1, C, D', H', W')
+        x_cls = xcls_weighted.view(channels, depth, height, width)
+
+        # Add Batch dimension
+        x_cls = x_cls.unsqueeze(0)
+
+        return x_cls
+       
+    def upsampling_xcls(self, x_cls):
+        B, C, Di, Hi, Wi = x_cls.shape
+
+        upsampled_size1 = (1, Hi*7, Wi*7)
+        x_cls = F.interpolate(x_cls, size=upsampled_size1, mode='nearest')
+        print(f"x_cls shape after upsampling: {x_cls.shape}")
+
+        # slice the x_cls to (B, G, C, D, H, W)
+        x_cls = x_cls.narrow(3, 0, 8)
+        x_cls = x_cls.narrow(4, 0, 10)
+
+        return x_cls
+
+    def forward(self, x_xcl_s1):
+        # separate the x and x_cls
+        # x_cls_group shape is (B, G, C, H, W)
+        x_cls_group = x_xcl_s1[:, :, :, 0, :, :]
+        # x_group shape is (B, G, C, T, H, W)
+        x_group = x_xcl_s1[:, :, :, 1:, :, :]
+        print(f"x_cls_group shape: {x_cls_group.shape}")
+        print(f"x_group shape: {x_group.shape}")
+
+        # average pooling x_group along temporal dimension for each group
+        x_group_avg = []
+        for i in range(self.G):
+            x_group_i = self.avg_poll1(x_group[:, i, :, :, :, :])
+            x_group_i = x_group_i.squeeze(2)
+            # print(f"x_group_i shape: {x_group_i.shape}")
+            x_group_avg.append(x_group_i)
+        x_group = torch.stack(x_group_avg, dim=1)
+        # Chage the shape of x_group to (B, C, G, H, W)
+        x_group = x_group.permute(0, 2, 1, 3, 4).contiguous()
+        print(f"x_group shape: {x_group.shape}")
+
+        # reshape to (B, G, C, D, H, W)
+        # x_cls_group1 = x_cls_group[:, 0, :, :, :]
+        x_cls_group = x_cls_group.unsqueeze(3)
+
+
+        # padding the x_cls_group to (B, G, C, D, 14, 14)
+        x_cls_group = self.padding(x_cls_group)
+        x_cls_group = x_cls_group.squeeze(0)
+
+        # get the x_cls from every windows
+        # x_cls has a shape of (G, C, D', H', W')
+        x_cls_group = self.avg_poll2(x_cls_group)
+        print(f"----x_cls_group shape----: {x_cls_group.shape}")
+
+        # merge the x_cls
+        x_cls = self.merge_cls(x_cls_group)
+        print(f"x_cls shape: {x_cls.shape}")
+
+        # upsampling the x_cls
+        x_cls = self.upsampling_xcls(x_cls)
+        print(f"x_cls shape after upsampling: {x_cls.shape}")
+
+        # merge the x_cls with x_group
+        x_xcl_s2 = torch.cat((x_cls, x_group), dim=2)
+        print(f"x_xcl_s2 shape: {x_xcl_s2.shape}")
+
+        # PatchMerging for Stage3
+        x_xcl_s2 = rearrange(x_xcl_s2, 'B C D H W -> B D H W C')
+        x_xcl_s2 = self.downsample(x_xcl_s2)
+        x_xcl_s2 = rearrange(x_xcl_s2, 'B D H W C -> B C D H W')
+        print(f"x_xcl_s2 shape after downsample: {x_xcl_s2.shape}")
+
+        return x_xcl_s2
+
+
+class Head_3D(nn.Module):
+    def __init__(self,
+                 in_channels=1024,
+                 num_classes=106,
+                 dropout_ration=0.5):
+        super(Head_3D, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.dropout_ratio = dropout_ration
+        if self.dropout_ratio != 0:
+            self.dropout = nn.Dropout(p=self.dropout_ratio)
+        else:
+            self.dropout = None
+        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        self.fc = nn.Linear(self.in_channels, self.num_classes)
+    
+    def forward(self, x):
+        """
+        Args:
+            x: (B, C, 1, 5, 6)
+        Returns:
+            scores: (B, num_classes)
+        """
+        # x [B, C, 1, 5, 6]
+        x = self.avgpool(x)
+        if self.dropout is not None:
+            x = self.dropout(x)
+        # x [B, C, 1, 1, 1]
+        x = x.view(x.shape[0], -1)
+        # [N, in_channels]
+        print(f"x shape after flatten: {x.shape}")
+        scores = self.fc(x)
+
+        return scores
+    
+
 
 class GEgoviT(nn.Module):
     def __init__(self,
@@ -756,6 +1020,8 @@ class GEgoviT(nn.Module):
                 use_checkpoint=use_checkpoint)
             self.stage1s.append(stage1)
 
+        self.PADM = PADM()
+
         self.stage2 = Stage2(pretrained=pretrained,
                             pretrained2d=pretrained2d,
                             patch_size=patch_size,
@@ -775,15 +1041,34 @@ class GEgoviT(nn.Module):
                             frozen_stages=frozen_stages,
                             use_checkpoint=use_checkpoint)
         
+        self.classifer = Head_3D(in_channels=1024, num_classes=106, dropout_ration=0.5)
+
     def forward(self, x, features):
         """Forward function."""
         # x = self.stage1(x, features)
-        x_list = []
+        x_xcl_list = []
+        print("---------------")
+        print("Stage1")
         for stage1 in self.stage1s:
-            x_list.append(stage1(x, features))
-        x = self.stage2(x_list[0])
+            x_xcl_list.append(stage1(x, features))
+        print("---------------")
+        print("PADM")
+        # concatenate the output of each group
+        x_xcl_s1 = torch.stack(x_xcl_list, dim=1)
+        print(f"x_xcl_s1 shape: {x_xcl_s1.shape}")
 
-        return x
+        x_xcl_s2 = self.PADM(x_xcl_s1)
+        # x = self.stage2(x_xcl_list[0])
+
+        print("---------------")
+        print("Stage2")
+        print("---------------")
+        x_xcl_s2 = self.stage2(x_xcl_s2)
+        print(f"x_xcl_s2 shape after St2: {x_xcl_s2.shape}")
+
+        scores = self.classifer(x_xcl_s2)
+
+        return scores
         
 
 # test the model
@@ -798,6 +1083,7 @@ input_feature = input_feature.to('cuda')
 # model = model.to('cuda')
 # St1 = model.forward(input, input_feature)
 # print(f"St1 shape: {St1.shape}")
+# print(f"St1 is: {St1[0,:,0,0,0]}")
 # with open('Stage1.txt', 'w') as f:
 #     f.write(str(model))
 
@@ -808,20 +1094,20 @@ input_feature = input_feature.to('cuda')
 # with open('Stage2.txt', 'w') as f:
 #     f.write(str(Stage2))
 
-# model = GEgoviT()
-# model = model.to('cuda')
-# output = model.forward(input, input_feature)
+model = GEgoviT()
+model = model.to('cuda')
+output = model.forward(input, input_feature)
 # print(f"output shape: {output.shape}")
 # for param in model.parameters():
 #     print(type(param.data), param.size())
 # with open('GEgoviT.txt', 'w') as f:
 #     f.write(str(model))
 
-test_list = []
-for i in range(4):
-    test_list.append(torch.randn(1024, 4, 8, 10).to('cuda'))
+# test_list = []
+# for i in range(4):
+#     test_list.append(torch.randn(1024, 4, 8, 10).to('cuda'))
 
-print(f"test_list length: {len(test_list)} and shape: {test_list[0].shape}")
-test = PADM()
-test = test.to('cuda')
-output_test = test.forward(test_list)
+# print(f"test_list length: {len(test_list)} and shape: {test_list[0].shape}")
+# test = PADM()
+# test = test.to('cuda')
+# output_test = test.forward(test_list)
