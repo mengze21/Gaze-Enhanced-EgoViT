@@ -437,6 +437,7 @@ class PatchEmbed3D(nn.Module):
     def forward(self, x):
         """Forward function."""
         # padding
+        print(f"input x shape: {x.shape}")
         _, _, D, H, W = x.size()
         if W % self.patch_size[2] != 0:
             x = F.pad(x, (0, self.patch_size[2] - W % self.patch_size[2]))
@@ -481,9 +482,9 @@ class DCTG(nn.Module):
             torch.Tensor: The reshaped tensor of averaged features.
         """
         # calculate the average of the input features along axis 0
-        mean_features = torch.mean(self.input, dim=1)
+        mean_features = torch.mean(self.input, dim=2)
         # reshape the tensor
-        mean_features = mean_features.unsqueeze(0)
+        mean_features = mean_features.squeeze(2)
 
         return mean_features
     
@@ -497,9 +498,11 @@ class DCTG(nn.Module):
         Returns:
             torch.Tensor: The output tensor.
         """
+        print(f"input_features shape: {input_features.shape}")
         # calculate the mean features
-        mean_features = input_features.mean(dim=1)
-        mean_features = mean_features.unsqueeze(0)
+        mean_features = input_features.mean(dim=2)
+        mean_features = mean_features.squeeze(2)
+        print(f"mean_features shape before LSTM: {mean_features.shape}")
         # forward pass the input features through the LSTM layer
         lstm_out, _ = self.lstm(mean_features)
 
@@ -618,6 +621,7 @@ class Stage1(nn.Module):
 
     def forward(self, x, features):
         """Forward function."""
+        print(f"features shape before DCTG: {features.shape}")
         x_cls = self.dctg(features)
         print(f"x_cls shape: {x_cls.shape}")
         x = self.patch_embed(x)
@@ -958,6 +962,8 @@ class Head_3D(nn.Module):
         print(f"x shape after flatten: {x.shape}")
         scores = self.fc(x)
 
+        predicted_label = scores.argmax(dim=1)
+
         return scores
     
 
@@ -1045,12 +1051,29 @@ class GEgoviT(nn.Module):
 
     def forward(self, x, features):
         """Forward function."""
-        # x = self.stage1(x, features)
+        # input x shape is (B, D, C, H, W)
+        x = x.permute(0, 2, 1, 3, 4).contiguous()
+        # x shape is (B, C, D, H, W)
+        B, C, D, H, W = x.shape
+        group_depth = D // self.G
+
+        print(f"input x shape is: {x.shape}")
+        print(f"input features shape is: {features.shape}")
         x_xcl_list = []
         print("---------------")
         print("Stage1")
-        for stage1 in self.stage1s:
-            x_xcl_list.append(stage1(x, features))
+
+        # split the input x into G groups along axi D and apply the stage1 to each group
+        for i in range(self.G):
+            print(f"Group {i}")
+            x_group = x[:, :,i*group_depth:(i+1)*group_depth, :, :]
+            features_group = features[:, i*group_depth:(i+1)*group_depth, :, :]
+            print(f"x_group shape: {x_group.shape}")
+            print(f"features_group shape: {features_group.shape}")
+            x_xcl_list.append(self.stage1s[i](x_group, features_group))
+        print(f"x_xcl_list length: {len(x_xcl_list)}")
+        # for stage1 in self.stage1s:
+        #     x_xcl_list.append(stage1(x, features))
         print("---------------")
         print("PADM")
         # concatenate the output of each group
@@ -1072,12 +1095,12 @@ class GEgoviT(nn.Module):
         
 
 # test the model
-input = torch.randn(1, 3, 8, 120, 160)
-input_feature = torch.randn(8, 5, 2048)
-# remove value < 0
-input_feature[input_feature < 0] = 0
-input = input.to('cuda')
-input_feature = input_feature.to('cuda')
+# input = torch.randn(1, 32, 3, 120, 160)
+# input_feature = torch.randn(32, 5, 2048)
+# # remove value < 0
+# input_feature[input_feature < 0] = 0
+# input = input.to('cuda')
+# input_feature = input_feature.to('cuda')
 
 # model = Stage1()
 # model = model.to('cuda')
@@ -1094,9 +1117,9 @@ input_feature = input_feature.to('cuda')
 # with open('Stage2.txt', 'w') as f:
 #     f.write(str(Stage2))
 
-model = GEgoviT()
-model = model.to('cuda')
-output = model.forward(input, input_feature)
+# model = GEgoviT()
+# model = model.to('cuda')
+# output = model.forward(input, input_feature)
 # print(f"output shape: {output.shape}")
 # for param in model.parameters():
 #     print(type(param.data), param.size())
