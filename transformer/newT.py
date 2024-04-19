@@ -437,7 +437,7 @@ class PatchEmbed3D(nn.Module):
     def forward(self, x):
         """Forward function."""
         # padding
-        print(f"input x shape: {x.shape}")
+        # print(f"input x shape: {x.shape}")
         _, _, D, H, W = x.size()
         if W % self.patch_size[2] != 0:
             x = F.pad(x, (0, self.patch_size[2] - W % self.patch_size[2]))
@@ -498,11 +498,11 @@ class DCTG(nn.Module):
         Returns:
             torch.Tensor: The output tensor.
         """
-        print(f"input_features shape: {input_features.shape}")
+        # print(f"input_features shape: {input_features.shape}")
         # calculate the mean features
         mean_features = input_features.mean(dim=2)
         mean_features = mean_features.squeeze(2)
-        print(f"mean_features shape before LSTM: {mean_features.shape}")
+        # print(f"mean_features shape before LSTM: {mean_features.shape}")
         # forward pass the input features through the LSTM layer
         lstm_out, _ = self.lstm(mean_features)
 
@@ -621,19 +621,19 @@ class Stage1(nn.Module):
 
     def forward(self, x, features):
         """Forward function."""
-        print(f"features shape before DCTG: {features.shape}")
+        # print(f"features shape before DCTG: {features.shape}")
         x_cls = self.dctg(features)
-        print(f"x_cls shape: {x_cls.shape}")
+        # print(f"x_cls shape: {x_cls.shape}")
         x = self.patch_embed(x)
-        print(f"embed x shape: {x.shape}")
+        # print(f"embed x shape: {x.shape}")
         # x = self.pos_drop(x)
-        print(f"x after pos_drop shape: {x.shape}")
+        # print(f"x after pos_drop shape: {x.shape}")
         # assign the class token to all windows
         x = self.create_class_token_map(x, x_cls)
-        print(f"x after create_class_token_map shape: {x.shape}")
+        # print(f"x after create_class_token_map shape: {x.shape}")
         for layer in self.layers:
             x = layer(x.contiguous())
-        print(f"x after layers shape: {x.shape}")
+        # print(f"x after layers shape: {x.shape}")
         x = rearrange(x, 'n c d h w -> n d h w c')
         x = self.norm(x)
         x = rearrange(x, 'n d h w c -> n c d h w')
@@ -701,7 +701,7 @@ class Stage2(nn.Module):
             """
 
             x = self.layer4(x)
-            print(f"x after layer4 shape: {x.shape}")
+            # print(f"x after layer4 shape: {x.shape}")
             x = rearrange(x, 'n c d h w -> n d h w c')
             x = self.norm(x)
             x = rearrange(x, 'n d h w c -> n c d h w')
@@ -865,7 +865,7 @@ class PADM(nn.Module):
 
         upsampled_size1 = (1, Hi*7, Wi*7)
         x_cls = F.interpolate(x_cls, size=upsampled_size1, mode='nearest')
-        print(f"x_cls shape after upsampling: {x_cls.shape}")
+        # print(f"x_cls shape after upsampling: {x_cls.shape}")
 
         # slice the x_cls to (B, G, C, D, H, W)
         x_cls = x_cls.narrow(3, 0, 8)
@@ -879,8 +879,8 @@ class PADM(nn.Module):
         x_cls_group = x_xcl_s1[:, :, :, 0, :, :]
         # x_group shape is (B, G, C, T, H, W)
         x_group = x_xcl_s1[:, :, :, 1:, :, :]
-        print(f"x_cls_group shape: {x_cls_group.shape}")
-        print(f"x_group shape: {x_group.shape}")
+        # print(f"x_cls_group shape: {x_cls_group.shape}")
+        # print(f"x_group shape: {x_group.shape}")
 
         # average pooling x_group along temporal dimension for each group
         x_group_avg = []
@@ -892,7 +892,7 @@ class PADM(nn.Module):
         x_group = torch.stack(x_group_avg, dim=1)
         # Chage the shape of x_group to (B, C, G, H, W)
         x_group = x_group.permute(0, 2, 1, 3, 4).contiguous()
-        print(f"x_group shape: {x_group.shape}")
+        # print(f"x_group shape: {x_group.shape}")
 
         # reshape to (B, G, C, D, H, W)
         # x_cls_group1 = x_cls_group[:, 0, :, :, :]
@@ -906,25 +906,25 @@ class PADM(nn.Module):
         # get the x_cls from every windows
         # x_cls has a shape of (G, C, D', H', W')
         x_cls_group = self.avg_poll2(x_cls_group)
-        print(f"----x_cls_group shape----: {x_cls_group.shape}")
+        # print(f"----x_cls_group shape----: {x_cls_group.shape}")
 
         # merge the x_cls
         x_cls = self.merge_cls(x_cls_group)
-        print(f"x_cls shape: {x_cls.shape}")
+        # print(f"x_cls shape: {x_cls.shape}")
 
         # upsampling the x_cls
         x_cls = self.upsampling_xcls(x_cls)
-        print(f"x_cls shape after upsampling: {x_cls.shape}")
+        # print(f"x_cls shape after upsampling: {x_cls.shape}")
 
         # merge the x_cls with x_group
         x_xcl_s2 = torch.cat((x_cls, x_group), dim=2)
-        print(f"x_xcl_s2 shape: {x_xcl_s2.shape}")
+        # print(f"x_xcl_s2 shape: {x_xcl_s2.shape}")
 
         # PatchMerging for Stage3
         x_xcl_s2 = rearrange(x_xcl_s2, 'B C D H W -> B D H W C')
         x_xcl_s2 = self.downsample(x_xcl_s2)
         x_xcl_s2 = rearrange(x_xcl_s2, 'B D H W C -> B C D H W')
-        print(f"x_xcl_s2 shape after downsample: {x_xcl_s2.shape}")
+        # print(f"x_xcl_s2 shape after downsample: {x_xcl_s2.shape}")
 
         return x_xcl_s2
 
@@ -959,7 +959,7 @@ class Head_3D(nn.Module):
         # x [B, C, 1, 1, 1]
         x = x.view(x.shape[0], -1)
         # [N, in_channels]
-        print(f"x shape after flatten: {x.shape}")
+        # print(f"x shape after flatten: {x.shape}")
         scores = self.fc(x)
 
         predicted_label = scores.argmax(dim=1)
@@ -1057,37 +1057,37 @@ class GEgoviT(nn.Module):
         B, C, D, H, W = x.shape
         group_depth = D // self.G
 
-        print(f"input x shape is: {x.shape}")
-        print(f"input features shape is: {features.shape}")
+        # print(f"input x shape is: {x.shape}")
+        # print(f"input features shape is: {features.shape}")
         x_xcl_list = []
-        print("---------------")
-        print("Stage1")
+        # print("---------------")
+        # print("Stage1")
 
         # split the input x into G groups along axi D and apply the stage1 to each group
         for i in range(self.G):
-            print(f"Group {i}")
+            # print(f"Group {i}")
             x_group = x[:, :,i*group_depth:(i+1)*group_depth, :, :]
             features_group = features[:, i*group_depth:(i+1)*group_depth, :, :]
-            print(f"x_group shape: {x_group.shape}")
-            print(f"features_group shape: {features_group.shape}")
+            # print(f"x_group shape: {x_group.shape}")
+            # print(f"features_group shape: {features_group.shape}")
             x_xcl_list.append(self.stage1s[i](x_group, features_group))
-        print(f"x_xcl_list length: {len(x_xcl_list)}")
+        # print(f"x_xcl_list length: {len(x_xcl_list)}")
         # for stage1 in self.stage1s:
         #     x_xcl_list.append(stage1(x, features))
-        print("---------------")
-        print("PADM")
+        # print("---------------")
+        # print("PADM")
         # concatenate the output of each group
         x_xcl_s1 = torch.stack(x_xcl_list, dim=1)
-        print(f"x_xcl_s1 shape: {x_xcl_s1.shape}")
+        # print(f"x_xcl_s1 shape: {x_xcl_s1.shape}")
 
         x_xcl_s2 = self.PADM(x_xcl_s1)
         # x = self.stage2(x_xcl_list[0])
 
-        print("---------------")
-        print("Stage2")
-        print("---------------")
+        # print("---------------")
+        # print("Stage2")
+        # print("---------------")
         x_xcl_s2 = self.stage2(x_xcl_s2)
-        print(f"x_xcl_s2 shape after St2: {x_xcl_s2.shape}")
+        # print(f"x_xcl_s2 shape after St2: {x_xcl_s2.shape}")
 
         scores = self.classifer(x_xcl_s2)
 

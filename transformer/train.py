@@ -5,7 +5,7 @@ import time
 import torch.nn as nn
 from newT import GEgoviT
 # from CustomDataset import ImageGazeDataset
-from myDataset import ImageGazeDataset
+from myDataset2 import ImageGazeDataset
 from torchvision import transforms
 from torch.optim import Adam
 from torch.utils.data import DataLoader
@@ -38,15 +38,15 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
         for batch in tqdm(train_loader):
 
             images = batch['images'].to(device)
-            gazes = batch['gaze'].to(device)
+            gazes = batch['features'].to(device)
             labels = batch['label'].to(device)
 
             optimizer.zero_grad()
             outputs = model(images, gazes)
-            print("$$$$$$$$")
-            print(f'outputs is {outputs}')
-            print(f'labels is {labels}')
-            print("$$$$$$$$")
+            # print("$$$$$$$$")
+            # print(f'outputs is {outputs}')
+            # print(f'labels is {labels}')
+            # print("$$$$$$$$")
             loss = criterion(outputs, labels)
             acc = (outputs.argmax(1) == labels).sum().item()
             total_acc_train += acc
@@ -57,7 +57,7 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
             optimizer.zero_grad()
 
 
-        print(f"Epoch {epoch + 1}, Loss: {total_loss_train / len(train_loader)}")
+        print(f"Epoch {epoch + 1}, Loss: {total_loss_train / len(train_loader)}, total_acc_train: {total_acc_train / len(train_loader)}")
 
     return model
 
@@ -69,7 +69,7 @@ BATCH_SIZE = 1
 
 
 # Train the model
-image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_use'
+image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_split1'
 gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/test_split1/combined_features'
 label_folder = '/scratch/users/lu/msc2024_mengze/dataset/test_split12.txt'
 
