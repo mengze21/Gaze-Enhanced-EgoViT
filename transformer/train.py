@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import cv2
+import os
 import time
 import torch.nn as nn
 from newT import GEgoviT
@@ -23,12 +24,8 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     # Load batch data
-    loading_start = time.time()
-    print("Loading data...")
     train_dataset = ImageGazeDataset(image_folder, gaze_folder, label_folder, transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    loading_end = time.time()
-    print(f"Data loaded in {(loading_end - loading_start) / 60 } minutes")
 
     # Fine tune the loop
     for epoch in range(epochs):
@@ -44,10 +41,11 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
             optimizer.zero_grad()
             outputs = model(images, gazes)
             # print("$$$$$$$$")
-            # print(f'outputs is {outputs}')
-            # print(f'labels is {labels}')
+            # print(f'outputs shape is {outputs.shape}')
+            # print(f'labels shape is {labels.shape}')
             # print("$$$$$$$$")
             loss = criterion(outputs, labels)
+            # print(f"outputs argmax is {outputs.argmax(1)} and labels is {labels}")
             acc = (outputs.argmax(1) == labels).sum().item()
             total_acc_train += acc
             total_loss_train += loss.item()
@@ -56,17 +54,15 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
             optimizer.step()
             optimizer.zero_grad()
 
-
         print(f"Epoch {epoch + 1}, Loss: {total_loss_train / len(train_loader)}, total_acc_train: {total_acc_train / len(train_loader)}")
 
-    return model
+    return model, optimizer
 
 
 # Hyperparameters
-EPOCHS = 5
+EPOCHS = 3
 LEARNING_RATE = 0.0001
 BATCH_SIZE = 1
-
 
 # Train the model
 image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_split1'
@@ -78,4 +74,12 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-train_model = model_train(image_folder, gaze_folder, label_folder, EPOCHS, LEARNING_RATE, BATCH_SIZE, transform=transform)
+trained_model, optimizer = model_train(image_folder, gaze_folder, label_folder, EPOCHS, LEARNING_RATE, BATCH_SIZE, transform=transform)
+
+model_save_path = '/scratch/users/lu/msc2024_mengze/transformer/saved_model/'
+
+# Save the model and optimizer
+if not os.path.exists(model_save_path):
+    os.makedirs(model_save_path)
+torch.save(trained_model.state_dict(), model_save_path + 'trained_model_0422_test_3Epochs.pth')
+torch.save(optimizer.state_dict(), model_save_path + 'optimizer_0422_test_3Epochs.pth')
