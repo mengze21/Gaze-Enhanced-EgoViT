@@ -1096,9 +1096,9 @@ class GEgoviT(nn.Module):
 
 # test the model
 # input = torch.randn(1, 32, 3, 120, 160)
-# input_feature = torch.randn(32, 5, 2048)
-# # remove value < 0
-# input_feature[input_feature < 0] = 0
+# input_feature = torch.randn(1, 32, 5, 2048)
+# # # remove value < 0
+# # input_feature[input_feature < 0] = 0
 # input = input.to('cuda')
 # input_feature = input_feature.to('cuda')
 
@@ -1120,7 +1120,7 @@ class GEgoviT(nn.Module):
 # model = GEgoviT()
 # model = model.to('cuda')
 # output = model.forward(input, input_feature)
-# print(f"output shape: {output.shape}")
+# # print(f"output shape: {output.shape}")
 # for param in model.parameters():
 #     print(type(param.data), param.size())
 # with open('GEgoviT.txt', 'w') as f:
