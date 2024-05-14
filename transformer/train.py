@@ -27,11 +27,8 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
     train_dataset = ImageGazeDataset(image_folder, gaze_folder, label_folder, transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    # Create a list to store accuracy values
-    accuracy_history = []
-
     today = datetime.datetime.now().strftime("%m%d")
-    acc_path = f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}1.txt"
+    acc_path = f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"
 
     # Fine tune the loop
     for epoch in range(epochs):
@@ -40,14 +37,10 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
         total_loss_train = 0.0
 
         for batch in tqdm(train_loader):
-
             images = batch['images'].to(device)
-            # print(f"images shape is {images.shape} and type is {images.dtype}")
             if transform:
                 images = transform(images)
-            # print(f"images shape is {images.shape} and type is {images.dtype}")
             gazes = batch['features'].to(device)
-            # print(f"gazes shape is {gazes.shape} and type is {gazes.dtype}")
             labels = batch['label'].to(device)
 
             outputs = model(images, gazes)
@@ -75,30 +68,48 @@ def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, 
         epoch_end = time.time()
         epoch_time = (epoch_end - epoch_start) / 60
         print(f"Epoch {epoch + 1}, Loss: {total_loss_train / len(train_loader)}, total_acc_train: {total_acc_train / len(train_loader)}, time: {epoch_time:.2f} min")
+    
+    # save checkpoint
+    model_save_dir = (f'/scratch/users/lu/msc2024_mengze/transformer/train_result/')
+    if not os.path.exists(model_save_dir):
+        os.makedirs(model_save_dir)
+    model_save_path = (model_save_dir + f'eEgoviT_EP{epochs}_{today}.pth')
+    checkpoint = {
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'epoch': epochs,
+        'learning_rate': learning_rate,
+        'batch_size': batch_size,
+        'loss': avg_loss,
+        'accuracy': avg_acc,
+        'acc_history': acc_path,
+    }
+    print(f"checkpoint keys: {checkpoint.keys()}")
+    torch.save(checkpoint, model_save_path)
 
     return model, optimizer
 
 
 # Hyperparameters
-EPOCHS = 30
+EPOCHS = 10
 LEARNING_RATE = 0.00001
 BATCH_SIZE = 2
+
 # save the hyperparameters
 today = datetime.datetime.now().strftime("%m%d")
+
 # Check if the file exists, if not, create a new one
-if not os.path.exists(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}1.txt"):
-        with open(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}1.txt", "w") as f:
-            f.write(f"Epochs: {EPOCHS}, Learning Rate: {LEARNING_RATE}, Batch Size: {BATCH_SIZE}\n")
-            f.write(f"Epoch total_acc_train total_loss_train\n")
+if not os.path.exists(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"):
+        with open(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt", "w") as f:
+            f.write(f"Epochs:{EPOCHS} Learning Rate:{LEARNING_RATE} Batch Size:{BATCH_SIZE}, Dataset:train_split1\n")
+            f.write(f"Epoch avg_acc avg_loss\n")
+
 # Train the model
-image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_split1'
-gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/test_split1/combined_features_new'
-label_folder = '/scratch/users/lu/msc2024_mengze/dataset/test_split12.txt'
+image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/train_split1'
+gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/train_split1/combined_features'
+label_folder = '/scratch/users/lu/msc2024_mengze/dataset/train_split12.txt'
 
 # 图像预处理
-# transform = transforms.Compose([
-#     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-# ])
 transforms = v2.Compose([
     v2.ToDtype(torch.float32, scale=True),
     v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -106,10 +117,3 @@ transforms = v2.Compose([
 
 trained_model, optimizer = model_train(image_folder, gaze_folder, label_folder, EPOCHS, LEARNING_RATE, BATCH_SIZE, transform=transforms)
 
-model_save_path = (f'/scratch/users/lu/msc2024_mengze/transformer/train_result/train_model_{today}1/')
-
-# Save the model and optimizer
-# if not os.path.exists(model_save_path):
-#     os.makedirs(model_save_path)
-# torch.save(trained_model.state_dict(), model_save_path + f'train_model_{today}1.pth')
-# torch.save(optimizer.state_dict(), model_save_path + 'optimizer_0426_testdataset_20Epochs.pth')
