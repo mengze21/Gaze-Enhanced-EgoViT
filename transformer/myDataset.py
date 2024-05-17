@@ -241,6 +241,58 @@ class MulDataset(Dataset):
         }
     
 
+class PreprocessedImageGazeDataset(Dataset):
+    """Load preprocessed image, gaze-hand-object features and label data."""
+    def __init__(self, data_folder):
+        self.data_folder = data_folder
+        
+        self.data_files = sorted(glob.glob(os.path.join(data_folder, '*.npz')))
+
+    def __len__(self):
+        return len(self.data_files)
+
+    def __getitem__(self, idx):
+        data = np.load(self.data_files[idx])
+        images = torch.tensor(data['images'])
+        features = torch.tensor(data['features'])
+        label = torch.tensor(data['label'])
+
+        # if self.transform:
+        #     images = torch.stack([self.transform(image) for image in images])
+
+        return {
+            'images': images,
+            'features': features,
+            'label': label
+        }
+    
+    
+class PreprocessedImageHODataset(Dataset):
+    """Load preprocessed image, hand-object features and label data."""
+    def __init__(self, data_folder):
+        self.data_folder = data_folder
+        
+        self.data_files = sorted(glob.glob(os.path.join(data_folder, '*.npz')))
+
+    def __len__(self):
+        return len(self.data_files)
+
+    def __getitem__(self, idx):
+        data = np.load(self.data_files[idx])
+        images = torch.tensor(data['images'])
+        # print(f"images shape is {images.shape}")
+        features = torch.tensor(data['features'][:,-2:]) # Only use hand-object features
+        # print(f"features shape is {features.shape}")
+        label = torch.tensor(data['label'])
+
+        # if self.transform:
+        #     images = torch.stack([self.transform(image) for image in images])
+
+        return {
+            'images': images,
+            'features': features,
+            'label': label
+        }
 # # 假定文件夹路径
 # image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_split1'
 # gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/test_split1/combined_features_new'
