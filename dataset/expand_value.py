@@ -28,8 +28,8 @@ def pad_and_save_txt(filepath, output_filepath):
             out_f.write(padded_row + "\n")
 
 # Example usage
-filepath = "dataset/test_split1.txt"  # Replace with your actual file path
-output_filepath = "dataset/test_split12.txt"  # Replace with your desired output file path
+filepath = "dataset/test_split2.txt"  # Replace with your actual file path
+output_filepath = "dataset/test_split22.txt"  # Replace with your desired output file path
 
 pad_and_save_txt(filepath, output_filepath)
 print("Done!")
