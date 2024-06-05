@@ -243,9 +243,9 @@ class MulDataset(Dataset):
 
 class PreprocessedImageGazeDataset(Dataset):
     """Load preprocessed image, gaze-hand-object features and label data."""
-    def __init__(self, data_folder):
+    def __init__(self, data_folder, transform=None):
         self.data_folder = data_folder
-        
+        self.transform = transform
         self.data_files = sorted(glob.glob(os.path.join(data_folder, '*.npz')))
 
     def __len__(self):
@@ -254,6 +254,10 @@ class PreprocessedImageGazeDataset(Dataset):
     def __getitem__(self, idx):
         data = np.load(self.data_files[idx])
         images = torch.tensor(data['images'])
+        images = images / 255.0
+        if self.transform:
+            images = self.transform(images)
+        images = images.view(3, 32, 224, 224)
         features = torch.tensor(data['features'])
         label = torch.tensor(data['label'])
 
@@ -269,9 +273,9 @@ class PreprocessedImageGazeDataset(Dataset):
     
 class PreprocessedImageHODataset(Dataset):
     """Load preprocessed image, hand-object features and label data."""
-    def __init__(self, data_folder):
+    def __init__(self, data_folder, transform=None):
         self.data_folder = data_folder
-        
+        self.transform = transform
         self.data_files = sorted(glob.glob(os.path.join(data_folder, '*.npz')))
 
     def __len__(self):
@@ -280,6 +284,11 @@ class PreprocessedImageHODataset(Dataset):
     def __getitem__(self, idx):
         data = np.load(self.data_files[idx])
         images = torch.tensor(data['images'])
+        images = images / 255.0
+        if self.transform:
+            images = self.transform(images)
+        # reshape the images to (3, 32, 224, 224)
+        images = images.view(3, 32, 224, 224)
         # print(f"images shape is {images.shape}")
         features = torch.tensor(data['features'][:,-2:]) # Only use hand-object features
         # print(f"features shape is {features.shape}")
@@ -293,6 +302,34 @@ class PreprocessedImageHODataset(Dataset):
             'features': features,
             'label': label
         }
+
+
+class PreprocessedOnlyGazeDataset(Dataset):
+    """Load preprocessed image, gaze-hand-object features and label data."""
+    def __init__(self, data_folder, transform=None):
+        self.data_folder = data_folder
+        self.transform = transform
+        self.data_files = sorted(glob.glob(os.path.join(data_folder, '*.npz')))
+
+    def __len__(self):
+        return len(self.data_files)
+
+    def __getitem__(self, idx):
+        data = np.load(self.data_files[idx], allow_pickle=True)
+        images = torch.tensor(data['images'])
+        images = images / 255.0
+        if self.transform:
+            images = self.transform(images)
+        images = images.view(3, 32, 224, 224)
+        features = torch.tensor(data['features'])
+        label = torch.tensor(data['label'])
+
+        return {
+            'images': images,
+            'features': features,
+            'label': label
+        }
+    
 # # 假定文件夹路径
 # image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_split1'
 # gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/test_split1/combined_features_new'
