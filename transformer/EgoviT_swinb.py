@@ -6,7 +6,7 @@ from torchvision.models.video import swin3d_b
 from einops import rearrange
 
 # Load pre-trained model Video Swin Transformer b
-swin3d_b = swin3d_b(weights='KINETICS400_V1')
+# swin3d_b = swin3d_b(weights='KINETICS400_V1')
 # print(swin3d_b.features[5:])
 
 class DCTG(nn.Module):
@@ -123,9 +123,11 @@ class PAMD(nn.Module):
 
         dot_products = torch.einsum('bgki,bgkj->bgij', norm, norm)
 
+        g = dot_products.size(-1)
         # Mask diagonal to exclude self-comparison
-        diag_mask = torch.eye(G, dtype=torch.bool).unsqueeze(0).repeat(B, 1, 1)
-        dot_products[diag_mask] = 0
+        diag_mask = torch.eye(g, dtype=torch.bool).unsqueeze(0).repeat(B, 1, 1)
+        # dot_products[diag_mask] = 0
+        dot_products[diag_mask.expand_as(dot_products)] = 0
 
         # score per group
         alpha = dot_products.sum(dim=-1)
@@ -137,7 +139,7 @@ class PAMD(nn.Module):
         alpha_normalized = F.softmax(alpha_gs, dim=1)
 
         # Weighted sum of class tokens along group axis
-        xcls_weighted = torch.einsum('bgcs,bg->bcs', x_cls_flat, alpha_normalized)
+        xcls_weighted = torch.einsum('bgcs,bs->bcs', x_cls_flat, alpha_normalized)
 
         # Reshape to original shape (B,C, D, H, W)
         x_cls_weighted = xcls_weighted.view(B, C, D, H, W)
@@ -229,6 +231,8 @@ class EgoviT_swinb(nn.Module):
         self.head = Head(original_model, num_classes=num_classes)
 
     def forward(self, x, features):
+        # print(f'Initial memory allocated: {torch.cuda.memory_allocated()}')
+        # print(f'Initial memory reserved: {torch.cuda.memory_reserved()}')
         # split the inputs into G groups at the temporal dimension
         x_split = torch.split(x, x.size(2) // self.G, dim=2)
         features_split = torch.split(features, features.size(1) // self.G, dim=1)
@@ -242,27 +246,33 @@ class EgoviT_swinb(nn.Module):
 
         del x_split, features_split, x_xcl_list, x_xcl, features
         gc.collect()
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
+        # print(f'After Stage 1 memory allocated: {torch.cuda.memory_allocated()}')
+        # print(f'After Stage 1 memory reserved: {torch.cuda.memory_reserved()}')
         x = self.PADM(x_xcl_s1)
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
+        # print(f'After PADM memory allocated: {torch.cuda.memory_allocated()}')
+        # print(f'After PADM memory reserved: {torch.cuda.memory_reserved()}')
         x = self.LTStage(x)
-
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
+        # print(f'After LTStage memory allocated: {torch.cuda.memory_allocated()}')
+        # print(f'After LTStage memory reserved: {torch.cuda.memory_reserved()}')
         x = x[:, 0, :, :, :]
         x = x.unsqueeze(1)
         x = self.norm(x)
         x = rearrange(x, 'B D H W C -> B C D H W')
 
         x = self.head(x)
-
+        # print(f'Final memory allocated: {torch.cuda.memory_allocated()}')
+        # print(f'Final memory reserved: {torch.cuda.memory_reserved()}')
         return x
     
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EgoviT_swinb = EgoviT_swinb(swin3d_b).to(device)
-# print(EgoviT_swinb)
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# EgoviT_swinb = EgoviT_swinb(swin3d_b, G=4).to(device)
 
-x = torch.randn(1, 3, 32, 224, 224).to(device)
-features = torch.randn(1, 32, 3, 2048).to(device)
-outputs = EgoviT_swinb(x, features)
-# print(outputs.shape)
+# print(f'Initial memory allocated: {torch.cuda.memory_allocated()}')
+# print(f'Initial memory reserved: {torch.cuda.memory_reserved()}')
+# x = torch.randn(1, 3, 32, 224, 224).to(device)
+# features = torch.randn(1, 32, 3, 2048).to(device)
+# outputs = EgoviT_swinb(x, features)
