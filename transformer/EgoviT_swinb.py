@@ -125,7 +125,7 @@ class PAMD(nn.Module):
 
         g = dot_products.size(-1)
         # Mask diagonal to exclude self-comparison
-        diag_mask = torch.eye(g, dtype=torch.bool).unsqueeze(0).repeat(B, 1, 1)
+        diag_mask = torch.eye(g, dtype=torch.bool).unsqueeze(0).unsqueeze(1).repeat(B, 1, 1, 1)
         # dot_products[diag_mask] = 0
         dot_products[diag_mask.expand_as(dot_products)] = 0
 
