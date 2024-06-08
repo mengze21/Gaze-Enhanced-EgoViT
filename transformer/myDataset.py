@@ -330,6 +330,43 @@ class PreprocessedOnlyGazeDataset(Dataset):
             'label': label
         }
     
+
+class PreprocessedOnlyImageDataset(Dataset):
+    """Load the images and labels from the dataset"""
+    def __init__(self, clips_dir, labels_file, transform=None):
+
+        self.label_pf = pd.read_csv(labels_file, sep=' ', header=None)
+        self.transform = transform
+        self.clips = sorted(glob.glob(os.path.join(clips_dir, '*')))
+        
+
+    def __len__(self):
+        return len(self.clips)
+    
+    def __getitem__(self, idx):
+        clip = self.clips[idx]
+        images_path = sorted(glob.glob(clip + '/*.jpg'))
+        # clip_name = os.path.splitext(os.path.basename(clip_path))[0]
+        clip_name = os.path.basename(clip)
+
+        # for imgage_path in images_path:
+        images = [read_image(image_path) for image_path in images_path]
+        images_tensor = torch.stack(images)
+        
+        if self.transform:
+            images_tensor = self.transform(images_tensor).float()
+
+        label = self.label_pf[self.label_pf[0] == clip_name][1].values[0]
+        # change the number from 1-106 to 0-105 to pass the index of scroes
+        label -= 1
+        label = torch.tensor(label, dtype=torch.long)
+
+        return {
+            'images':images_tensor, 
+            'label':label
+        }
+    
+
 # # 假定文件夹路径
 # image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/test_split1'
 # gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/test_split1/combined_features_new'
