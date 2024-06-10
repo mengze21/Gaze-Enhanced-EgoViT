@@ -18,3 +18,4 @@ GazeFeatures/cropped_frames2
 GazeFeatures/padded_frames
 Video_Swin_Transformer
 transformer/train_result
+frames_4x3views
