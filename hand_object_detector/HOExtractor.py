@@ -44,7 +44,7 @@ from model.utils.blob import im_list_to_blob
 from model.faster_rcnn.vgg16 import vgg16
 from model.faster_rcnn.resnet import resnet
 import pdb
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import json
 
 # from tensorboardX import SummaryWriter
@@ -174,7 +174,7 @@ def save_data(box, features, image_name, handdata):
 
     # np.savetxt('array.txt', features, delimiter=',')
     if handdata:
-        path_to_save = current_wording_dir + '/Extracted_HOFeatures/hand/' + image_name
+        path_to_save = current_wording_dir + '/Extracted_HOFeatures_224/hand/' + image_name
 
         combined_data = {
             "class": "hand",  # "hand" or "object
@@ -185,7 +185,7 @@ def save_data(box, features, image_name, handdata):
         with open(path_to_save + '.json', 'w') as f:
             json.dump(combined_data, f, indent=4)
     else:
-        path_to_save = current_wording_dir + '/Extracted_HOFeatures/object/' + image_name
+        path_to_save = current_wording_dir + '/Extracted_HOFeatures_224/object/' + image_name
 
         combined_data = {
             "class": "object",  # "hand" or "object
