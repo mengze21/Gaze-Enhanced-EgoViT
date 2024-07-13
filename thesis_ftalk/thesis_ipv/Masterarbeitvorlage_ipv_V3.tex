@@ -1,0 +1,109 @@
+% -*- TeX:EN -*-
+\documentclass[12pt,twoside,a4paper]{report}
+\input{config}
+% \include{config}	% Pakete und Konfiguration
+
+% % Custom commands and configurations
+%\input{abbreviations.tex} % Include the glossary definitions
+\input{chapters/abbreviations}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+
+% Titelseite 
+%Inhaltsverzeichnis
+\include{cover_and_toc}
+\include{ipv_commands_3}
+
+% Zusammenfassung (Summary)
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+\input{chapters/zusammenfassung}
+
+% Kapitel %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% \include{chapters/zusammenfassung}
+% \include{chapters/Warumtex}
+% \include{chapters/ipetex}
+% \include{chapters/install}
+% \include{chapters/latexbefehle}
+% \include{chapters/Verzeichnisse}
+% \include{chapters/grafiken}
+% \include{chapters/SpielundStilregeln}
+\include{chapters/introduction}
+\include{chapters/related works}
+\include{chapters/methodology}
+\include{chapters/experiments}
+\include{chapters/summery}
+% \include{chapters/latex-tipps}
+\phantomsection
+
+% Anhang %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\begin{appendix}
+%\renewcommand{\chaptermark}[1]{\markboth{\MakeUppercase{\appendixname\ \thechapter.\ #1}}{}} % \thechapter=Number of chapter
+%Argument #1 is the name of the chapter
+% \include{appendix/anhang1}
+%\end{appendix}
+
+\renewcommand{\chaptermark}[1]{\markboth{\MakeUppercase{#1}}{}} %\chaptername=Kapitel \thechapter=Nummer %Argument #1 ist der Name des kapitels
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Abkürzungsverzeichnis
+\clearpage % bei Option "oneside"
+%\cleardoublepage % bei Option "twoside"
+% \newpage
+\renewcommand{\glossaryname}{List of Abbreviations}
+% \chapter*{\glossaryname} %\nomname
+\addcontentsline{toc}{chapter}{\acronymname}
+% \addcontentsline{toc}{chapter}{List of Abbreviations}
+\markboth{\MakeUppercase{\acronymname}}{\acronymname}
+% \printnoidxglossaries
+\printnoidxglossaries
+% \printglossary[type=\acronymtype]
+% \markboth{\MakeUppercase{\nomname}}{\nomname}
+%\printnomenclature[2cm]
+% Print the glossary
+%\cleardoublepage % bei Option "twoside"
+% \input{chapters/abbreviations}
+% \addcontentsline{toc}{chapter}{Abbreviations}
+% \markboth{\MakeUppercase{Abbreviations}}{List of Abbreviations}
+% \printglossary[type=\acronymtype, title=List of Abbreviations]
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% List of Tables
+%\cleardoublepage
+\renewcommand{\listtablename}{List of Tables}
+\addcontentsline{toc}{chapter}{List of Tables}
+\listoftables
+%\markboth{List of Tables}{List of Tables}
+%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% List of Figures
+%\cleardoublepage
+\renewcommand{\listfigurename}{List of Figures}
+\addcontentsline{toc}{chapter}{List of Figures}
+\listoffigures
+%%\markboth{List of Figures}{List of Figures}
+%\cleardoublepage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Sticwortverzeichnis
+% \renewcommand{\indexname}{Stichwortverzeichnis}
+% \addcontentsline{toc}{chapter}{Stichwortverzeichnis}
+% \printindex
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%bibliography
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\renewcommand{\bibname}{Bibliography}
+\newpage
+\phantomsection
+\addcontentsline{toc}{chapter}{Bibliography}
+\printbibliography
+
+%use Danksagung as template!
+% \include{chapters/Danksagung}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\end{myenvironment}
+\end{document}

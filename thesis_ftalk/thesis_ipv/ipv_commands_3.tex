@@ -1,0 +1,214 @@
+\newcommand{\latex}{\LaTeX}
+\newcommand{\biblatex}{Bib\LaTeX}
+\newcommand{\tab}[1]{Tabelle \ref{tab:#1}}
+\newcommand{\Egquer}{{\bar{E}_{ \mathrm{g}}}}
+\newcommand{\sigmaEg}{{\sigma_{ \mathrm{Eg}}}}
+\newcommand{\fig}[1]{Bild \ref{fig:#1}}
+% Einheiten
+\newcommand{\mJ}{\unit{mJ}}
+\newcommand{\kV}{\unit{kV}}
+\newcommand{\mAh}{\unit{mAh}}
+\newcommand{\g}{\unit{g}}
+\newcommand{\As}{\unit{As}}
+\newcommand{\mol}{\unit{mol}}
+\newcommand{\mA}{\unit{mA}}
+\newcommand{\kB}{{k_{ \mathrm{ B}}}}
+\newcommand{\m}{\unit{m}}
+\newcommand{\J}{\unit{J}}
+\newcommand{\mbar}{\unit{mbar}}
+\newcommand{\unit}[1]{{\,\rm #1}} %Einheiten (Aufrecht)
+\newcommand{\A}{\unit{A}}
+\newcommand{\Celsius}{\unit{^\circ C}}
+\newcommand{\cm}{\unit{cm}}
+\newcommand{\dB}{\unit{dB}} %deziBel
+\newcommand{\Dekade}{\unit{Dec}} %Dekade
+\newcommand{\eV}{\unit{eV}}
+\newcommand{\eVolt}{\unit{eV}}
+\newcommand{\Farad}{\unit{F}}
+\newcommand{\GHz}{\unit{GHz}}
+\newcommand{\Hz}{\unit{Hz}}
+\newcommand{\inch}{\unit{inch}} %Ein Zoll
+\newcommand{\K}{\unit{K}}
+\newcommand{\kHz}{\unit{kHz}}
+\newcommand{\meV}{\unit{meV}}
+\newcommand{\MHz}{\unit{MHz}}
+\newcommand{\mm}{\unit{mm}}
+\newcommand{\mSek}{\unit{ms}} %Millisekunde
+\newcommand{\mum}{\unit{\mu m}}
+\newcommand{\muSek}{\unit{\mu s}} %Mikrosekunde
+\newcommand{\mTorr}{\unit{mTorr}}
+\newcommand{\mV}{\unit{mV}}
+\newcommand{\mVolt}{\unit{mV}}
+\newcommand{\mW}{\unit{mW}}
+\newcommand{\nF}{\unit{nF}} %Nanno Farrad
+\newcommand{\nH}{\unit{nH}} %Nanno Henry
+\newcommand{\nm}{\unit{nm}}
+\newcommand{\nSek}{\unit{ns}} %Nanosekunde
+\newcommand{\Ohm}{\Omega}
+\newcommand{\percent}{\unit{\%}}
+\newcommand{\pF}{\unit{pF}} %Pico Farrad
+\newcommand{\pH}{\unit{pH}} %Pico Henry
+\newcommand{\pSek}{\unit{ps}} %Picosekunde
+\newcommand{\s}{\unit{s}} %Sekunde
+\newcommand{\V}{\unit{V}}
+\newcommand{\W}{\unit{W}}
+\renewcommand{\min}{\unit{min}} %Sekunde
+\newcommand{\keV}{\unit{keV}}
+\newcommand{\h}{\unit{h}}
+\newcommand{\sq}{\unit{sq}}
+\newcommand{\pA}{\unit{pA}}
+\newcommand{\nA}{\unit{nA}}
+\newcommand{\Ah}{\unit{Ah}}
+\newcommand{\kOhm}{\unit{k\Omega}}
+
+% Schriftgroessen im Math-Modus
+%
+\newcommand{\TS}{\textstyle}
+\newcommand{\DS}{\displaystyle}
+\newcommand{\SCS}{\scriptstyle}
+\newcommand{\SCSCS}{\scriptscriptstyle}
+%
+%
+% Schriftarten im Math-Modus
+%
+\newcommand{\kuno}[1]{$#1$}                  %kursiv, normal
+\newcommand{\upno}[1]{\mbox{\rm{#1}}}        %upright(senkrecht), bold
+\newcommand{\kubo}[1]{\mbox{\boldmath $#1$}} %kursiv, bold
+\newcommand{\upbo}[1]{\mbox{\rm\bf{#1}}}     %upright(senkrecht), bold
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%Gleichungen und Formeln
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand{\eqn}[2]{\begin{equation}
+#1
+\label{eqn:#2}
+\end{equation}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%***********************************************************************%
+%
+% Schriftgroesse fuer xfig-bilder
+%
+%***********************************************************************%
+%
+\newcommand{\tsl}[1]{\large #1}
+\newcommand{\tsn}[1]{\normalsize #1}
+\newcommand{\tss}[1]{\small #1}
+%\newcommand{\tsl}[1]{\Large #1}
+%\newcommand{\tsn}[1]{\large #1}
+%\newcommand{\tss}[1]{\normalsize #1}
+\newcommand{\fsl}[1]{\tsl{$#1$}}
+\newcommand{\fsn}[1]{\tsn{$#1$}}
+\newcommand{\fss}[1]{\tss{$#1$}}
+%
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%Tabellen nicht als Abkürzung sondern zum Rauskopieren
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%\begin{table}[h!tbp]
+%\mycaption{Verdammt wichtige physikalische Konstanten}{}
+%\vspace{5mm}
+%  \centering
+%  \begin{tabular}{ l l }
+%    \hline
+%    \hline
+%    % after \\: \hline or \cline{col1-col2} \cline{col3-col4} ...
+%    Größe & Wert \\
+%    \hline
+%    $q$ &      $1.6 \times 10^{-19} \A\s $ \\
+%   $\varepsilon_0 $ &  $ 8.85 \times 10^{-14} \A\s/\V\cm$ \\
+%    \hline
+%    \hline
+%  \end{tabular}
+%\vspace{5mm}
+%\label{tab:physkonst}
+%\end{table}
+
+
+%***********************************************************************%
+%
+% Bilder, Rahmen
+%
+%***********************************************************************%
+%\includeps{Breite in Zentimetern 'cm'}{bild_datei}{Unterschrift}{Eintrag ins Abbildungsverzeichnis}
+\newcommand{\includeps}[4]{
+\begin{figure}[h!tbp]
+\vspace{3mm}
+  \begin{center}
+       \includegraphics[width=#1]{#2.eps}
+ \mycaption{#3}{#4}
+    \label{fig:#2}
+  \end{center}
+\vspace{5mm}
+\end{figure}
+}%
+%% Einbinden von PDFs als Bilder
+\newcommand{\includepdf}[4]{
+\begin{figure}[h!tbp]
+\vspace{3mm}
+  \begin{center}
+       \includegraphics[width=#1]{#2.pdf}
+ \mycaption{#3}{#4}
+    \label{fig:#2}
+  \end{center}
+\vspace{5mm}
+\end{figure}
+}%
+
+%%%  Einbinden von svg's aus inkscape (mit Latexschrift in Bild)
+\newcommand{\executeiffilenewer}[3]{%
+\ifnum\pdfstrcmp{\pdffilemoddate{#1}}%
+{\pdffilemoddate{#2}}>0%
+{\immediate\write18{#3}}\fi%
+}
+
+\newcommand{\includesvg}[4]{
+\begin{figure}[h!tbp]
+\vspace{3mm}
+  \begin{center}
+   \def\svgwidth{#1}
+   \executeiffilenewer{#2.svg}{#2.pdf}%
+	{inkscape -z -D --file=#2.svg %
+	--export-pdf=#2.pdf --export-latex}%
+	\input{#2.pdf_tex}
+	 \mycaption{#3}{#4}
+	    \label{fig:#2}
+	  \end{center}
+	\vspace{5mm}
+	\end{figure}
+}
+%%%Die folgenden beiden Befehle sind nur für xfig Benutzer relevant
+%%Optionen zum Aufruf von xfig, damit der Export von pstex-Grafiken gut funktioniert:
+%%xfig -metric -right -but_per_row 3 -portrait -zoom 2 -pheight 18 -pwidth 24 -latexfonts -specialtext -startgridmode 1 -exportL pstex
+%%Oder als alias einrichten: z. B.
+%%alias lafig 'xfig -metric -right -but_per_row 3 -portrait -zoom 2 -pheight 18 -pwidth 24 -latexfonts -specialtext -startgridmode 1 -exportL pstex'  # xfig fuer latex
+%
+%%\includepstex{bild_datei}{Unterschrift}{Eintrag ins Abbildungsverzeichnis}
+%\newcommand{\includepstex}[3]{
+%\begin{figure}[h!tbp]
+%\vspace{5mm}
+%  \begin{center}
+%    %\figbox{ \input{#1.pstex_t} }
+%    \input{#1.pstex_t}
+%   \mycaption{#2}{#3}
+%    \label{fig:#1}
+%    \vspace{3mm}
+%  \end{center}
+%\end{figure}
+%}%
+
+%
+%%\includepstexshift{bild_datei}{Unterschrift}{H-Shift}{eintrag ins Abbildungsverzeichnis}
+%\newcommand{\includepstexshift}[4]{
+%\begin{figure}[h!tbp]
+%  \begin{center}
+%    \figbox{ \hspace*{#3}\input{#1.pstex_t} }
+%    \mycaption{#2}{#4}
+%    \label{fig:#1}
+%  \end{center}
+%\end{figure}}%
