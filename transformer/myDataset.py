@@ -253,7 +253,7 @@ class PreprocessedImageGazeDataset(Dataset):
 
     def __getitem__(self, idx):
         data = np.load(self.data_files[idx])
-        images = torch.tensor(data['images'])
+        images = torch.tensor(data['images']).float()
         images = images / 255.0
         if self.transform:
             images = self.transform(images)
@@ -283,7 +283,7 @@ class PreprocessedImageHODataset(Dataset):
 
     def __getitem__(self, idx):
         data = np.load(self.data_files[idx])
-        images = torch.tensor(data['images'])
+        images = torch.tensor(data['images']).float()
         images = images / 255.0
         if self.transform:
             images = self.transform(images)
@@ -316,12 +316,12 @@ class PreprocessedOnlyGazeDataset(Dataset):
 
     def __getitem__(self, idx):
         data = np.load(self.data_files[idx], allow_pickle=True)
-        images = torch.tensor(data['images'])
+        images = torch.tensor(data['images']).float()
         images = images / 255.0
         if self.transform:
             images = self.transform(images)
         images = images.view(3, 32, 224, 224)
-        features = torch.tensor(data['features'])
+        features = torch.tensor(data['features'][:,:1])
         label = torch.tensor(data['label'])
 
         return {
@@ -333,36 +333,25 @@ class PreprocessedOnlyGazeDataset(Dataset):
 
 class PreprocessedOnlyImageDataset(Dataset):
     """Load the images and labels from the dataset"""
-    def __init__(self, clips_dir, labels_file, transform=None):
-
-        self.label_pf = pd.read_csv(labels_file, sep=' ', header=None)
+    def __init__(self, data_folder, transform=None):
+        self.data_folder = data_folder
         self.transform = transform
-        self.clips = sorted(glob.glob(os.path.join(clips_dir, '*')))
+        self.data_files = sorted(glob.glob(os.path.join(data_folder, '*.npz')))
         
-
     def __len__(self):
-        return len(self.clips)
+        return len(self.data_files)
     
     def __getitem__(self, idx):
-        clip = self.clips[idx]
-        images_path = sorted(glob.glob(clip + '/*.jpg'))
-        # clip_name = os.path.splitext(os.path.basename(clip_path))[0]
-        clip_name = os.path.basename(clip)
-
-        # for imgage_path in images_path:
-        images = [read_image(image_path) for image_path in images_path]
-        images_tensor = torch.stack(images)
-        
+        data = np.load(self.data_files[idx])
+        images = torch.tensor(data['images']).float()
         if self.transform:
-            images_tensor = self.transform(images_tensor).float()
+            images = self.transform(images)
+        # images = images.view(3, 32, 224, 224)
 
-        label = self.label_pf[self.label_pf[0] == clip_name][1].values[0]
-        # change the number from 1-106 to 0-105 to pass the index of scroes
-        label -= 1
-        label = torch.tensor(label, dtype=torch.long)
+        label = torch.tensor(data['label'])
 
         return {
-            'images':images_tensor, 
+            'images':images, 
             'label':label
         }
     
