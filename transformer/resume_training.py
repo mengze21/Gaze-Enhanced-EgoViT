@@ -3,126 +3,160 @@ import os
 import datetime
 import time
 import torch.nn as nn
-from newT4 import GEgoviT
-from myDataset3 import ImageGazeDataset
-from torchvision.transforms import v2
 from torchvision import transforms
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler, autocast
+from torchvision.models.video import swin3d_b
+from EgoviT_swinb import EgoviT_swinb, EgoviT_swinb_v3, EgoviT_swinb_v4
+# from myDataset import PreprocessedImageHODataset, PreprocessedImageGazeDataset, PreprocessedOnlyGazeDataset
+from myDataset_v2 import PreprocessedImageGazeDataset, PreprocessedOnlyGazeDataset
+from torch.utils.tensorboard import SummaryWriter
 
-def load_checkpoint(model, optimizer, checkpoint_fpath):
-    checkpoint = torch.load(checkpoint_fpath)
-    # print(checkpoint.keys())
-    model.load_state_dict(checkpoint['model'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-    trained_epoch = checkpoint['epoch']
-    # print(trained_epoch)
-    acc_history = checkpoint['acc_history']
-    print(checkpoint['accuracy'])
-    return model, optimizer, trained_epoch, acc_history
+# 保存检查点函数
+def save_checkpoint(state, checkpoint_dir, filename):
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    filepath = os.path.join(checkpoint_dir, filename)
+    torch.save(state, filepath)
 
-def resume_training(image_folder, gaze_folder, label_folder,  model_path, epochs, learning_rate, batch_size, transform=None):
+# 加载检查点函数
+def load_checkpoint(model, optimizer, scaler, checkpoint_path):
+    if os.path.isfile(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scaler.load_state_dict(checkpoint['scaler_state_dict'])
+        start_epoch = checkpoint['epoch']
+        print(f"Checkpoint loaded successfully from {checkpoint_path} at epoch {start_epoch}")
+        return start_epoch
+    else:
+        print(f"No checkpoint found at {checkpoint_path}")
+        return 0
 
+# 单个epoch的训练函数
+def train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, accumulation_steps):
+    model.train()
+    total_acc_train = 0
+    total_loss_train = 0
+    total_batches = 0
+    total_samples = 0
+
+    for batch_index, batch in enumerate(tqdm(train_loader, desc="Training", leave=False)):
+        images = batch['images'].to(device).float()
+        features = batch['features'].to(device).float()
+        labels = batch['label'].to(device).long()
+
+        with autocast():
+            outputs = model(images, features)
+            loss = criterion(outputs, labels)
+
+        scaler.scale(loss).backward()
+
+        if (batch_index + 1) % accumulation_steps == 0:
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
+
+        acc = (outputs.argmax(1) == labels).sum().item()
+        total_acc_train += acc
+        total_loss_train += loss.item()
+        total_samples += labels.size(0)
+        total_batches += 1
+
+    avg_loss = total_loss_train / total_batches
+    avg_acc = total_acc_train / total_samples
+
+    return avg_loss, avg_acc
+
+# 训练函数
+def train(data_folder, epochs, batch_size, learning_rate, accumulatino_steps=1, transform=None, acc_path=None, checkpoint_dir="checkpoints", resume_from_checkpoint=None, feature_type='G'):
     use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
+    device = torch.device("cuda:1" if use_cuda else "cpu")
 
-    # Load model, loss function, and optimizer
-    model = GEgoviT().to(device)
+    # 加载预训练模型
+    swin3d = swin3d_b(weights='KINETICS400_V1')
+    model = EgoviT_swinb_v4(swin3d, G=4).to(device)
+
     criterion = nn.CrossEntropyLoss().to(device)
-    optimizer = Adam(model.parameters(), lr=learning_rate)
-    model, optimizer, trained_epoch, acc_history = load_checkpoint(model, optimizer, model_path)
+    print(f"learning rate: {learning_rate}")
+    # 设置AdamW优化器，所有参数组使用相同的学习率
+    optimizer = AdamW(model.parameters(), lr=learning_rate)
 
-    # Load batch data
-    train_dataset = ImageGazeDataset(image_folder, gaze_folder, label_folder, transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # 数据加载
+    if feature_type == 'HO':
+        train_dataset = PreprocessedImageHODataset(data_folder, transform=transform)
+        print("Dataset contains head-object")
+    if feature_type == 'GHO':
+        print("Dataset contains gaze-hand-object")
+        train_dataset = PreprocessedImageGazeDataset(data_folder, gaze_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/train_split1/gaze_v2_32',transform=transform)
+    if feature_type == 'G':
+        train_dataset = PreprocessedOnlyGazeDataset(data_folder, gaze_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/train_split1/gaze_v2_32', transform=transform)
+        print("Dataset contains only gaze")
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
 
-    # Fine tune the loop
-    for epoch in range(trained_epoch,epochs):
-        print(f"Epoch {epoch}:")
-        epoch_start = time.time()
-        total_acc_train = 0
-        total_loss_train = 0.0
+    # 初始化GradScaler用于混合精度训练
+    scaler = GradScaler()
 
-        for batch in tqdm(train_loader):
-            images = batch['images'].to(device)
-            if transform:
-                images = transform(images)
-            gazes = batch['features'].to(device)
-            labels = batch['label'].to(device)
+    # 初始化TensorBoard SummaryWriter
+    writer = SummaryWriter(log_dir=os.path.join(checkpoint_dir, 'tensorboard_logs'))
 
-            # outputs = model(images, gazes)
-            # loss = criterion(outputs, labels)
+    start_epoch = 0
+    if resume_from_checkpoint:
+        start_epoch = load_checkpoint(model, optimizer, scaler, resume_from_checkpoint)
 
-            # acc = (outputs.argmax(1) == labels).sum().item()
-            # total_acc_train += acc
-            # total_loss_train += loss.item()
+    for epoch in range(start_epoch, epochs):
+        avg_loss, avg_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, accumulation_steps=accumulatino_steps)
 
-            # optimizer.zero_grad()
-            # loss.backward()
-            # optimizer.step()
-        
-        avg_loss = total_loss_train / len(train_loader)
-        avg_acc = total_acc_train / len(train_loader)
+        print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, Accuracy: {avg_acc:.4f}")
 
-        # Save accuracy to a text file
-        # Get today's date in a formatted string (YYYYMMDD)
-        # today = datetime.datetime.now().strftime("%m%d")
-        # Construct the new file path with the date
-        # acc_path = f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"
-        with open(acc_history, "a") as f:
+        # 保存准确率和损失到文件
+        with open(acc_path, "a") as f:
             f.write(f"{epoch + 1} {avg_acc:.4f} {avg_loss:.4f}\n")
 
-        epoch_end = time.time()
-        epoch_time = (epoch_end - epoch_start) / 60
-        print(f"Epoch {epoch + 1}, Loss: {total_loss_train / len(train_loader)}, Accuracy: {total_acc_train / len(train_loader)}, Time: {epoch_time:.2f} min")
+        # 记录到TensorBoard
+        writer.add_scalar('Loss/train', avg_loss, epoch + 1)
+        writer.add_scalar('Accuracy/train', avg_acc, epoch + 1)
 
-        # save checkpoint
-        model_save_dir = (f'/scratch/users/lu/msc2024_mengze/transformer/train_result/')
-        if not os.path.exists(model_save_dir):
-            os.makedirs(model_save_dir)
-        model_name = model_path.split('/')[-1].split('.')[0] + f"_REP{epochs}.pth"
-        model_save_path = (model_save_dir + model_name)
+        # 保存检查点
         checkpoint = {
-            'model': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'epoch': epochs,
-            'learning_rate': learning_rate,
-            'batch_size': batch_size,
-            'loss': avg_loss,
-            'accuracy': avg_acc,
-            'acc_history': acc_history,
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scaler_state_dict': scaler.state_dict(),
+            'acc_path': acc_path,
         }
-        # print(f"checkpoint keys: {checkpoint.keys()}")
-        torch.save(checkpoint, model_save_path)
+        checkpoint_filename = f'checkpoint_epoch_{epoch + 1}.pth'
+        save_checkpoint(checkpoint, checkpoint_dir, checkpoint_filename)
 
-        return model, optimizer
-    
-# Hyperparameters
-EPOCHS = 20
-LEARNING_RATE = 0.00001
-BATCH_SIZE = 2
+    writer.close()
 
-# save the hyperparameters
+    return None
+
+# 获取当前日期
 today = datetime.datetime.now().strftime("%m%d")
+# data features type
+feature_type = 'GHO'
+acc_path = f"/scratch/lu/msc2024_mengze/transformer/train_result/EgoviT_swinb_v4n_lr1e5_{feature_type}_preweights_newg_{today}.txt"
+checkpoint_dir = f"/scratch/lu/msc2024_mengze/transformer/train_result/EgoviT_swinb_v4n_lr1e5_preweights_{feature_type}_newg_{today}"
 
-# Check if the file exists, if not, create a new one
-# if not os.path.exists(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"):
-#         with open(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt", "w") as f:
-#             f.write(f"Epochs: {EPOCHS}, Learning Rate: {LEARNING_RATE}, Batch Size: {BATCH_SIZE}\n")
-#             f.write(f"Epoch avg_acc avg_loss\n")
+# 超参数
+EPOCHS =25
+BATCH_SIZE = 4
+LEARNING_RATE = 0.00001
+RESUME_FROM_CHECKPOINT = "/scratch/lu/msc2024_mengze/transformer/train_result/EgoviT_swinb_lr1e5_preweights_GHO_newg_0629/checkpoint_epoch_20.pth"  # Update with actual checkpoint path
 
-# Train the model
-
-image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/train_split1'
-gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/train_split1/combined_features'
-label_folder = '/scratch/users/lu/msc2024_mengze/dataset/train_split12.txt'
-
-model_path = "/scratch/users/lu/msc2024_mengze/transformer/train_result/eEgoviT_EP1_0513.pth"
-# 图像预处理
-transforms = v2.Compose([
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+transform = transforms.Compose([
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
-trained_model, optimizer =resume_training(image_folder, gaze_folder, label_folder,  model_path, EPOCHS, LEARNING_RATE, BATCH_SIZE, transform=transforms)
+# 检查文件是否存在，如果不存在则创建新文件
+if not os.path.exists(acc_path):
+    with open(acc_path, "w") as f:
+        f.write(f"Epochs:{EPOCHS} Learning Rate: {LEARNING_RATE} Batch Size:{BATCH_SIZE} {feature_type} Model:EgoviT_swinb new gaze weights='KINETICS400_V1' G=4\n")
+        f.write(f"Epoch avg_acc avg_loss\n")
+
+# 训练 
+train(data_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/train_split1/all', 
+      epochs=EPOCHS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, acc_path=acc_path, transform=transform, checkpoint_dir=checkpoint_dir, accumulatino_steps=1, resume_from_checkpoint=None, feature_type=feature_type)

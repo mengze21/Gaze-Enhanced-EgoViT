@@ -5,9 +5,6 @@ import torch.nn.functional as F
 from torchvision.models.video import swin3d_b
 from einops import rearrange
 
-# Load pre-trained model Video Swin Transformer b
-# swin3d_b = swin3d_b(weights='KINETICS400_V1')
-# print(swin3d_b.features[5:])
 
 class DCTG(nn.Module):
     """
@@ -35,6 +32,8 @@ class DCTG(nn.Module):
         x_cls = self.fc(x_cls)
 
         return x_cls
+
+
 
 class ShortTermStage(nn.Module):
     def __init__(self, original_model, num_classes=106):
@@ -231,9 +230,7 @@ class EgoviT_swinb(nn.Module):
         self.head = Head(original_model, num_classes=num_classes)
 
     def forward(self, x, features):
-        # print(f'Initial memory allocated: {torch.cuda.memory_allocated()}')
-        # print(f'Initial memory reserved: {torch.cuda.memory_reserved()}')
-        # split the inputs into G groups at the temporal dimension
+
         x_split = torch.split(x, x.size(2) // self.G, dim=2)
         features_split = torch.split(features, features.size(1) // self.G, dim=1)
 
@@ -247,32 +244,366 @@ class EgoviT_swinb(nn.Module):
         del x_split, features_split, x_xcl_list, x_xcl, features
         gc.collect()
         torch.cuda.empty_cache()
-        # print(f'After Stage 1 memory allocated: {torch.cuda.memory_allocated()}')
-        # print(f'After Stage 1 memory reserved: {torch.cuda.memory_reserved()}')
+
         x = self.PADM(x_xcl_s1)
         torch.cuda.empty_cache()
-        # print(f'After PADM memory allocated: {torch.cuda.memory_allocated()}')
-        # print(f'After PADM memory reserved: {torch.cuda.memory_reserved()}')
         x = self.LTStage(x)
         torch.cuda.empty_cache()
-        # print(f'After LTStage memory allocated: {torch.cuda.memory_allocated()}')
-        # print(f'After LTStage memory reserved: {torch.cuda.memory_reserved()}')
+
         x = x[:, 0, :, :, :]
+
         x = x.unsqueeze(1)
         x = self.norm(x)
         x = rearrange(x, 'B D H W C -> B C D H W')
-
         x = self.head(x)
-        # print(f'Final memory allocated: {torch.cuda.memory_allocated()}')
-        # print(f'Final memory reserved: {torch.cuda.memory_reserved()}')
+
         return x
     
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# EgoviT_swinb = EgoviT_swinb(swin3d_b, G=4).to(device)
+class xcls_generator(nn.Module):
+    def __init__(self, original_model):
+        super(xcls_generator, self).__init__()
+        self.DCTG = DCTG()
+        self.patch_embed = original_model.patch_embed
 
-# print(f'Initial memory allocated: {torch.cuda.memory_allocated()}')
-# print(f'Initial memory reserved: {torch.cuda.memory_reserved()}')
-# x = torch.randn(1, 3, 32, 224, 224).to(device)
-# features = torch.randn(1, 32, 3, 2048).to(device)
-# outputs = EgoviT_swinb(x, features)
+    def create_class_token_map(self, x, xcls):
+            """
+            Args:
+            x: A tensor of shape (B, D, H, W, C)
+            x_cls: A tensor of shape (B, C)
+
+            Returns:
+                x: A tensor of shape (B, D+1, H, W, C)
+            """
+
+            B, D, H, W, C = x.shape
+
+            xcls = xcls.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+            xcls = xcls.expand(-1, -1, H, W, -1)
+            x = torch.cat((xcls, x), dim=1)
+
+            return x
+    
+    def forward(self, x, features):
+
+        x_cls = self.DCTG(features)
+        x = self.patch_embed(x)
+        x = self.create_class_token_map(x, x_cls)
+
+        return x
+
+class EgoviT_swinb_v2(nn.Module):
+    def __init__(self, original_model,G=1, num_classes=106):
+        super(EgoviT_swinb_v2, self).__init__()
+        self.xcls_generator = xcls_generator(original_model)
+        self.backbone = nn.Sequential(*list(original_model.children())[1:-2])
+        self.head = Head(original_model, num_classes=num_classes)
+
+
+    def forward(self, x, features):
+        # print(f"x shape: {x.shape}")
+        x = self.xcls_generator(x, features)
+        torch.cuda.empty_cache()
+        x = self.backbone(x)
+        # print(f"x shape after backbone: {x.shape}")
+        torch.cuda.empty_cache()
+        x = x[:, 0, :, :, :]
+        x = x.unsqueeze(1)
+        # print(f"x shape after slicing: {x.shape}")
+        x = rearrange(x, 'B D H W C -> B C D H W')
+        # print(f"x shape after rearrange: {x.shape}")
+        x = self.head(x)
+
+        return x
+    
+
+
+
+
+class DCTG_v2(nn.Module):
+    def __init__(self, hidden_size=256, embed_dim=128):
+        super(DCTG_v2, self).__init__()
+        self.lstm = nn.LSTM(input_size=2048, hidden_size=hidden_size, num_layers=2, batch_first=True)
+        self.fc = nn.Linear(hidden_size, embed_dim)
+
+    def forward(self, x):
+        x_gaze = x[:,:,0,:] # (B, G, C)
+        x_ho = x[:,:,1:,:] # (B, G, 2 C)
+        # calculate the mean features of the ho-features
+        x_ho = x_ho.mean(dim=2)
+        # forward pass the input features through the LSTM layer
+        lstm_out_gaze, _ = self.lstm(x_gaze)
+        lstm_out_ho, _ = self.lstm(x_ho)
+        # forward pass the output of the LSTM layer through the linear layer
+        x_cls_gaze = lstm_out_gaze[:, -1, :]
+        x_cls_ho = lstm_out_ho[:, -1, :]
+        x_cls_gaze = self.fc(x_cls_gaze)
+        x_cls_ho = self.fc(x_cls_ho)
+
+        x_cls_gaze = x_cls_gaze.unsqueeze(1)
+        x_cls_ho = x_cls_ho.unsqueeze(1)
+        x = torch.cat((x_cls_gaze, x_cls_ho), dim=1)
+        return x
+    
+
+class ShortTermStage_v2(nn.Module):
+    def __init__(self, original_model, num_classes=106):
+        super(ShortTermStage_v2, self).__init__()
+        self.dctg = DCTG_v2()
+        self.patch_embed = original_model.patch_embed
+        self.Stage1_3 = original_model.features[0:5]
+
+    def create_class_token_map(self, x, xcls):
+        """
+        Args:
+        x: A tensor of shape (B, D, H, W, C)
+        x_cls: A tensor of shape (B, C)
+
+        Returns:
+            x: A tensor of shape (B, D+1, H, W, C)
+        """
+
+        B, D, H, W, C = x.shape
+
+        xcls = xcls.unsqueeze(2).unsqueeze(3)
+        xcls = xcls.expand(-1, -1, H, W, -1)
+        x = torch.cat((xcls, x), dim=1)
+
+        return x
+
+    def forward(self, x, features):
+
+        # merge the x and features to create the class token map
+        x_cls = self.dctg(features)
+        x = self.patch_embed(x) # (B, D, H, W, C)
+        x = self.create_class_token_map(x, x_cls) # (B, D+1, H, W, C)
+
+        # feed the class token map to the stage1 to stage3 of the Swin
+        x = self.Stage1_3(x)
+
+        return x
+
+
+class PAMD_v2(nn.Module):
+    def __init__(self, G=4, embed_dim=128, window_size=(1,7,7)):
+        super(PAMD_v2, self).__init__()
+        self.G = G
+        self.window_size = window_size
+        self.num_features = int(embed_dim * 2 ** 3)
+        # pool size (4, 1, 1) is only for G=4 window size (1,7,7)
+        # self.avg_poll1 = nn.AvgPool3d(kernel_size=(4, 1, 1))
+        self.avg_poll2 = nn.AvgPool3d(kernel_size=window_size)
+        # self.downsample = PatchMerging(dim=512, norm_layer=nn.LayerNorm)
+
+    def avgpool3d(self, x_cls_group):
+            """
+            Applies average pooling operation to the input tensor to get the x_cls.
+
+            Args:
+                x_cls_group (torch.Tensor): Input tensor of shape (B, G, C, D, H, W)
+
+            Returns:
+                torch.Tensor: Output tensor after applying average pooling operation.
+                            The shape of the output tensor is (B, G, C, D', H', W'), where
+                            D' = D // window_size, H' = H // window_size, and W' = W // window_size.
+
+            """
+            window_size = self.window_size
+            B, G, C, D, H, W = x_cls_group.shape
+            x_cls_group = x_cls_group.view(B * G, C, D, H, W)
+            x_cls_group = self.avg_poll2(x_cls_group)
+            # reshape to (B, G, C, D', H', W')
+            x_cls_group = x_cls_group.view(B, G, C, D // window_size[0], H // window_size[1], W // window_size[2])
+            # print(f"x_cls_group shape after avg_pool3d: {x_cls_group.shape}")
+
+            return x_cls_group
+    
+    def merge_cls(self, x_cls):
+        B, G, C, D, H, W = x_cls.shape
+        # Flatten spatial dimensions
+        x_cls_flat = x_cls.view(B, G, C, -1)  # [batch, group, channels, spatial]
+
+        # Compute L2 norms
+        # l2norms = torch.linalg.norm(x_cls_flat, ord=2, dim=2, keepdim=True)
+ 
+        # Compute norms
+        norms = torch.norm(x_cls_flat, dim=2, keepdim=True)  # Norm across channels
+
+        norm = x_cls_flat / norms
+
+        dot_products = torch.einsum('bgki,bgkj->bgij', norm, norm)
+
+        g = dot_products.size(-1)
+        # Mask diagonal to exclude self-comparison
+        diag_mask = torch.eye(g, dtype=torch.bool).unsqueeze(0).unsqueeze(1).repeat(B, 1, 1, 1)
+        # dot_products[diag_mask] = 0
+        dot_products[diag_mask.expand_as(dot_products)] = 0
+
+        # score per group
+        alpha = dot_products.sum(dim=-1)
+
+        # total score of all groups
+        alpha_gs = alpha.sum(dim=1)
+
+        # Apply softmax to normalize scores
+        alpha_normalized = F.softmax(alpha_gs, dim=1)
+
+        # Weighted sum of class tokens along group axis
+        xcls_weighted = torch.einsum('bgcs,bs->bcs', x_cls_flat, alpha_normalized)
+
+        # Reshape to original shape (B,C, D, H, W)
+        x_cls_weighted = xcls_weighted.view(B, C, D, H, W)
+
+        return x_cls_weighted
+    
+    def upsampling_xcls(self, x_cls):
+        B, C, Di, Hi, Wi = x_cls.shape
+
+        upsampled_size1 = (1, Hi * 7, Wi * 7)
+        x_cls = F.interpolate(x_cls, size=upsampled_size1, mode='nearest')
+
+        # # slice the x_cls to (B, G, C, D, H, W)
+        # x_cls = x_cls.narrow(3, 0, 8)
+        # x_cls = x_cls.narrow(4, 0, 10)
+
+        return x_cls
+    
+    def forward(self, x):
+        """Input x is x_cls_s1, shape is (B, G, D, H, W, C)"""
+        # separate the x and x_cls, the first D is the x_cls
+        
+        x_clses = x[:, :, 0, :, :, :] # (B, G, H, W, C)
+        x_normal = x[:, :, 1:, :, :, :] # (B, G, D, H, W, C)
+
+        # Merging the normal class tokens
+        # average pooling x_normal along temporal dimension D for each group
+        # (B, G, D, H, W, C) -> (B, G, H, W, C)
+        x_normal = x_normal.mean(dim=2, keepdim=False) 
+
+        # reshape x_clses to (B, G, D, H, W, C)
+        x_clses = x_clses.unsqueeze(2)
+
+        # reshape x_clses to (B, G, C, D, H, W)
+        x_clses = rearrange(x_clses, 'B G D H W C -> B G C D H W')
+
+        # get the x_cls from every windows
+        x_clses = self.avgpool3d(x_clses) # B G C D' H' W'
+
+        # merge the x_clses
+        x_cls_weighted = self.merge_cls(x_clses)
+        
+        # upsampling the x_cls
+        x_cls_weighted = self.upsampling_xcls(x_cls_weighted)
+        # reshape x_cls_weighted to (B, D, H, W, C)
+        x_cls_weighted = rearrange(x_cls_weighted, 'B C D H W -> B D H W C')
+
+        # merge the x_cls with x_group
+        x_xcl_s2 = torch.cat((x_cls_weighted, x_normal), dim=1)
+
+        return x_xcl_s2
+    
+
+class EgoviT_swinb_v3(nn.Module):
+    """EgoviT_swinb_v3 model. seperate gaze and hand-object features. send only gaze features to the head."""
+    def __init__(self, original_model, G=4, num_classes=106):
+        super(EgoviT_swinb_v3, self).__init__()
+        self.G = G
+        # self.features = nn.Sequential(*list(original_model.children())[2:-1])
+        self.STStage = ShortTermStage_v2(original_model)
+        self.PADM = PAMD_v2(G=G)
+        self.LTStage = LongTermStage(original_model)
+        self.norm = original_model.norm
+        # self.avgpool = original_model.avgpool
+        self.head = Head(original_model, num_classes=num_classes)
+
+    def forward(self, x, features):
+
+        x_split = torch.split(x, x.size(2) // self.G, dim=2)
+        features_split = torch.split(features, features.size(1) // self.G, dim=1)
+
+        x_xcl_list = []
+
+        for x, features in zip(x_split, features_split):
+            x_xcl = self.STStage(x, features)
+            x_xcl_list.append(x_xcl)
+        x_xcl_s1 = torch.stack(x_xcl_list, dim=1) # (B, G, D, H, W, C)
+
+        del x_split, features_split, x_xcl_list, x_xcl, features
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        x = self.PADM(x_xcl_s1)
+        torch.cuda.empty_cache()
+        x = self.LTStage(x)
+        torch.cuda.empty_cache()
+
+        x = x[:, 0, :, :, :]
+
+        x = x.unsqueeze(1)
+        x = self.norm(x)
+        x = rearrange(x, 'B D H W C -> B C D H W')
+        x = self.head(x)
+
+        return x
+
+
+class EgoviT_swinb_v4(nn.Module):
+    """EgoviT_swinb_v4 model. seperate gaze and hand-object features. send all token to the head. """
+    def __init__(self, original_model, G=4, num_classes=106):
+        super(EgoviT_swinb_v4, self).__init__()
+        self.G = G
+        # self.features = nn.Sequential(*list(original_model.children())[2:-1])
+        # self.STStage = ShortTermStage_v2(original_model)
+        # self.PADM = PAMD_v2(G=G)
+        self.STStage = ShortTermStage(original_model)
+        self.PADM = PAMD(G=G)
+        self.LTStage = LongTermStage(original_model)
+        self.norm = original_model.norm
+        # self.avgpool = original_model.avgpool
+        self.head = Head(original_model, num_classes=num_classes)
+
+    def forward(self, x, features):
+
+        x_split = torch.split(x, x.size(2) // self.G, dim=2)
+        features_split = torch.split(features, features.size(1) // self.G, dim=1)
+
+        x_xcl_list = []
+
+        for x, features in zip(x_split, features_split):
+            x_xcl = self.STStage(x, features)
+            x_xcl_list.append(x_xcl)
+        x_xcl_s1 = torch.stack(x_xcl_list, dim=1) # (B, G, D, H, W, C)
+
+        del x_split, features_split, x_xcl_list, x_xcl, features
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        x = self.PADM(x_xcl_s1)
+        torch.cuda.empty_cache()
+        x = self.LTStage(x)
+        torch.cuda.empty_cache()
+
+        # x = x[:, 0, :, :, :]
+        # send all tokens to the head
+        # x = x.unsqueeze(1)
+        x = self.norm(x)
+        x = rearrange(x, 'B D H W C -> B C D H W')
+        x = self.head(x)
+
+        return x
+    
+# ======================================================================= #   
+# device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+# swin3d = swin3d_b(weights='KINETICS400_V1')
+# model = EgoviT_swinb_v3(swin3d).to(device)
+# # # print(swin3d)
+# # print(model)
+
+# # # print(f'Initial memory allocated: {torch.cuda.memory_allocated()}')
+# # # print(f'Initial memory reserved: {torch.cuda.memory_reserved()}')
+# x = torch.randn(4, 3, 32, 224, 224).to(device)
+# features = torch.randn(4, 32, 3, 2048).to(device)
+# outputs = model(x, features)
+# print(f"outputs.shape: {outputs.shape}")
+
+

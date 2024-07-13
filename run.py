@@ -12,9 +12,9 @@ from VideoFramSaver import VideoFrameSaver
 def main():
 
     # define the path of the hand object detector module manually
-    hand_object_detector = "/scratch/users/lu/msc2024_mengze/hand_object_detector"
-    demo = "/scratch/users/lu/msc2024_mengze/hand_object_detector/demo.py"
-    HOExtractor = "/scratch/users/lu/msc2024_mengze/hand_object_detector/HOExtractor.py"
+    hand_object_detector = "/scratch/lu/msc2024_mengze/hand_object_detector"
+    demo = "/scratch/lu/msc2024_mengze/hand_object_detector/demo.py"
+    HOExtractor = "/scratch/lu/msc2024_mengze/hand_object_detector/HOExtractor.py"
     cuda = True
 
     # run module by user input
@@ -31,7 +31,9 @@ def main():
                        cwd=hand_object_detector)
         
     elif module == "HOExtractor":
-        subprocess.run(["python3", HOExtractor, "--cuda" if cuda else "", "--image_dir=/scratch/users/lu/msc2024_mengze/Frames"], cwd=hand_object_detector)
+        env = os.environ.copy()
+        env['CUDA_VISIBLE_DEVICES'] = '2'
+        subprocess.run(["python3", HOExtractor, "--cuda" if cuda else "", "--image_dir=/scratch/lu/msc2024_mengze/Frames_224/train_split1"], cwd=hand_object_detector)
 
     else:
         print("Invalid module name")

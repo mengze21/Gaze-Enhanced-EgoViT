@@ -125,9 +125,9 @@ class GazeNet_const_weight(nn.Module):
 
 # set_seed(42)  # 你可以选择任何你喜欢的整数作为种子
 # gaze_feature = GazeNet()
-#
-# x = torch.rand(1, 3, 35, 35)
-# print(f"x is {x}")
+
+# x = torch.rand(8, 3, 35, 35)
+# # print(f"x is {x}")
 # # print(gaze_feature(x).shape)
 # y = gaze_feature(x)
-# print(y)
+# print(y.shape)

@@ -3,106 +3,137 @@ import os
 import datetime
 import time
 import torch.nn as nn
-from newT4 import GEgoviT
-# from myDataset3 import ImageGazeDataset
-from myDataset import ImageHODataset, PreprocessedImageGazeDataset, PreprocessedImageHODataset
-from torchvision.transforms import v2
 from torchvision import transforms
-from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torch.cuda.amp import autocast
+from torchvision.models.video import swin3d_b
+from EgoviT_swinb import EgoviT_swinb, EgoviT_swinb_v2, EgoviT_swinb_v3, EgoviT_swinb_v4
+# from myDataset import PreprocessedImageHODataset, PreprocessedImageGazeDataset, PreprocessedOnlyGazeDataset, PreprocessedOnlyImageDataset
+from myDataset_v2 import PreprocessedImageGazeDataset, PreprocessedOnlyGazeDataset
+from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+# from sklearn.metrics import accuracy_score
 
 
-BATCH_SIZE = 16 
-transforms = v2.Compose(
-    [v2.ToDtype(torch.float32, scale=True),
-     v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+def test_one_epoch(model, test_loader, criterion, device):
+    model.eval()
+    total_acc_test = 0
+    total_loss_test = 0
+    total_samples = 0
+    total_batches = 0
+    top5_acc = 0
+    per_class_correct = np.zeros(106)
+    per_class_total = np.zeros(106)
 
-def test(batch_size, transform=None):
+    with torch.no_grad():
+        for batch in tqdm(test_loader, desc="Testing", leave=False):
+            images = batch['images'].to(device).float()
+            features = batch['features'].to(device).float()
+            labels = batch['label'].to(device).long()
+
+            with autocast():
+                outputs = model(images, features)
+                loss = criterion(outputs, labels)
+
+            acc = (outputs.argmax(1) == labels).sum().item()
+            total_acc_test += acc
+            total_loss_test += loss.item()
+            total_samples += labels.size(0)
+            total_batches += 1
+
+            # Calculate top-5 accuracy
+            _, top5_pred = outputs.topk(5, 1, True, True)
+            top5_acc += (top5_pred == labels.unsqueeze(1)).sum().item()
+
+            # Calculate per-class accuracy
+            for i in range(labels.size(0)):
+                label = labels[i].item()
+                pred = outputs[i].argmax().item()
+                per_class_total[label] += 1
+                if label == pred:
+                    per_class_correct[label] += 1
+
+    avg_loss = total_loss_test / total_batches
+    avg_acc = total_acc_test / total_samples
+    top5_acc = top5_acc / total_samples
+    per_class_acc = per_class_correct / per_class_total
+    mean_class_acc = np.mean(per_class_acc)
+
+    return avg_loss, avg_acc, top5_acc, per_class_acc, mean_class_acc
+
+
+def test(data_folder, model_path, batch_size, transform=None, feature_type=None, acc_path="transformer/test_result/accuracy_history.txt"):
     use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
-    # device = torch.device('cpu')
-    test_folder = "/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/test_split1/all_data"
-    checkpoint_fpath = "/scratch/users/lu/msc2024_mengze/transformer/train_result/eEgoviT_EP30_0516_nogaze.pth"
+    device = torch.device("cuda:1" if use_cuda else "cpu")
 
-    testset = PreprocessedImageHODataset(test_folder)
-    testloader = DataLoader(testset, batch_size=BATCH_SIZE, shuffle=False)
-    
-    model = GEgoviT().to(device)
-    checkpoint = torch.load(checkpoint_fpath, map_location=device)
-    model.load_state_dict(checkpoint['model'])
+    # Load pre-trained model Video Swin Transformer b
+    swin3d = swin3d_b(weights='KINETICS400_V1')
+    model = EgoviT_swinb_v4(swin3d, G=4).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device)['model_state_dict'])
 
     criterion = nn.CrossEntropyLoss().to(device)
 
-    correct_1 = 0
-    correct_5 = 0
-    total = 0
-    total_loss_test = 0.0
+    # Load batch data
+    if feature_type == 'HO':
+        test_dataset = PreprocessedImageHODataset(data_folder, transform=transform)
+        print("HO")
+    if feature_type == 'GHO':
+        # test_dataset = PreprocessedImageGazeDataset(data_folder, transform=transform)
+        test_dataset = PreprocessedImageGazeDataset(data_folder, gaze_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/test_split1/gaze_v2_32', transform=transform)
+        print("GHO")
+    if feature_type == 'G':
+        test_dataset = PreprocessedOnlyGazeDataset(data_folder, gaze_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/test_split1/gaze_v2_32',transform=transform)
+        print("G")
 
-    # Initialize counters for class-wise accuracy
-    class_correct = [0] * 106
-    # print(f"class_correct: {class_correct}")
-    class_total = [0] * 106
-    model.eval()
-    print("Start testing")
-    with torch.no_grad():
-        # for data in testloader:
-        for batch_idx, data in enumerate(tqdm(testloader, desc="Testing")):
-            images = data['images'].to(device)
-            if transform:
-                images = transform(images).float()
-            features = data['features'].to(device).float()
-            labels = data['label'].to(device).long()
-            # print(f"labels: {labels}")
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
-            outputs = model(images, features)
-            loss = criterion(outputs, labels)
+    # Initialize TensorBoard SummaryWriter
+    writer = SummaryWriter(log_dir=os.path.join(os.path.dirname(model_path), 'tensorboard_logs'))
 
-            _, predicted_1 = torch.max(outputs.data, 1)
-            # Get the top 5 predictions
-            _, predicted_5 = torch.topk(outputs, 5, dim=1)
+    start_time = time.time()
 
-            total += labels.size(0)
-            # print(f"total: {total}")
-            correct_1 += (predicted_1 == labels).sum().item()
-            # For top-5 accuracy, check if the true label is among the top-5 predictions
-            correct_5 += sum([1 if label in predicted_5[i] else 0 for i, label in enumerate(labels)])
-            # print(f"correct-1: {correct_1}")
-            # print(f"correct-5: {correct_5}")
+    avg_loss, avg_acc, top5_acc, per_class_acc, mean_class_acc = test_one_epoch(model, test_loader, criterion, device)
 
-            # Update class-wise counters
-            for label, prediction in zip(labels, predicted_1):
-                class_total[label] += 1
-                if label == prediction:
-                    class_correct[label] += 1
-            
-            total_loss_test += loss.item()
+    epoch_time = time.time() - start_time
+    print(f"Test Loss: {avg_loss:.4f}, Accuracy: {avg_acc:.4f}, Top-5 Accuracy: {top5_acc:.4f}, Mean Class Accuracy: {mean_class_acc:.4f}, Time: {epoch_time:.2f}s")
 
-        avg_loss = total_loss_test / total
-        top1_acc = correct_1 / total
-        top5_acc = correct_5 / total
-        print(f"Top-1 accuracy: {top1_acc}")
-        print(f"Top-5 accuracy: {top5_acc}")
-        # Calculate class mean accuracy
-        class_accuracies = [correct / total if total > 0 else 0 for correct, total in zip(class_correct, class_total)]
-        mean_class_accuracy = sum(class_accuracies) / len(class_accuracies)
-        print(f"Mean class accuracy: {mean_class_accuracy}")
-        print(f"Class-wise accuracy: {class_accuracies}")
-        print("End testing")
+    # Save accuracy and loss to file
+    with open(acc_path, "a") as f:
+        f.write(f"Test Loss: {avg_loss:.4f} Accuracy: {avg_acc:.4f} Top-5 Accuracy: {top5_acc:.4f}\n")
+        f.write(f"Class-wise accuracy: {per_class_acc}\n")
+        f.write(f"Mean Class Accuracy: {mean_class_acc:.4f}\n")
 
-        # save the result
-        result_folder = "/scratch/users/lu/msc2024_mengze/transformer/test_result"
-        checkpoint_fname = os.path.basename(checkpoint_fpath)
-        checkpoint_fname = os.path.splitext(checkpoint_fname)[0]
-        result_fpath = os.path.join(result_folder, f"{checkpoint_fname}_2.txt")
+    # Log metrics to TensorBoard
+    writer.add_scalar('Loss/test', avg_loss, 1)
+    writer.add_scalar('Accuracy/test', avg_acc, 1)
+    writer.add_scalar('Top5Accuracy/test', top5_acc, 1)
+    writer.add_scalar('MeanClassAccuracy/test', mean_class_acc, 1)
 
-        with open(result_fpath, "a") as f:
-            f.write(f"Test Loss: {avg_loss:.4f}\n")
-            f.write(f"Top-1 Accuracy: {top1_acc:.4f}\n")
-            f.write(f"Top-5 Accuracy: {top5_acc:.4f}\n")
-            f.write(f"Mean Class Accuracy: {mean_class_accuracy:.4f}\n")
-            f.write(f"Class-wise accuracy: {class_accuracies}\n")
-            f.write(f"class_correct: {class_correct}\n")
-            f.write(f"class_total: {class_total}\n")
+    writer.close()
 
-test(BATCH_SIZE, transform=transforms)
+    return avg_loss, avg_acc, top5_acc, mean_class_acc
+
+
+feature_type = 'GHO'
+today = datetime.datetime.now().strftime("%m%d")
+acc_path = f"/scratch/lu/msc2024_mengze/transformer/test_result/EgoviT_swinb_v4_lr1e5_{feature_type}_{today}.txt"
+model_path = f"/scratch/lu/msc2024_mengze/transformer/train_result/EgoviT_swinb_v4n_lr1e5_preweights_GHO_newg_0630/checkpoint_epoch_14.pth"
+
+# Hyperparameters
+BATCH_SIZE = 4
+
+
+transform = transforms.Compose([
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+# Check if the file exists, if not, create a new one
+if not os.path.exists(acc_path):
+    with open(acc_path, "w") as f:
+        f.write(f"Batch Size:{BATCH_SIZE} new gaze Model:EgoviT_swinb_v4_lr1e5_bs4_{feature_type}_19E\n")
+        
+print(f"Testing feature type: {feature_type}")
+# 
+test(data_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/test_split1/all', 
+     model_path=model_path, batch_size=BATCH_SIZE, feature_type=feature_type, acc_path=acc_path, transform=transform)
