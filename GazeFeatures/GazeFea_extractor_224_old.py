@@ -4,9 +4,7 @@
 # Lack of the gaze data is filled with the center of the frame
 # save the features in npz file
 # gaze corrdinates are pass to 224x224 frames
-# use random data for gaze data not found
-# use all gaze point type
-# updated at 06/13
+# The new version 06/03
 # ----------------------------------------------------------------
 
 import sys
@@ -16,15 +14,14 @@ import cv2
 import os
 import pandas as pd
 import json
-from GazeNet import GazeNet
+from GazeNet import GazeNet_const_weight
 import time
 import glob
-from torchvision import transforms
 
 
 class GazeFeaturesExtractor:
     def __init__(self, frames_dir="/scratch/users/lu/msc2024_mengze/Frames3/testing",
-                 gaze_data_dir="/scratch/users/lu/msc2024_mengze/gaze_preprocessing/ExtractedGaze_fix_sac",
+                 gaze_data_dir="/scratch/users/lu/msc2024_mengze/gaze_preprocessing/ExtractedGaze",
                  output_dir="/scratch/users/lu/msc2024_mengze/GazeFeatures",
                  gazepath_tosave = "/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/train_split1/gaze_224",
                  bbox_hw=35, test_dir=""):
@@ -35,7 +32,7 @@ class GazeFeaturesExtractor:
         self.width = bbox_hw
         self.height = bbox_hw
         self.gazepath_tosave = gazepath_tosave
-        self.gaze_feature_generator = GazeNet()
+        self.gaze_feature_generator = GazeNet_const_weight()
 
     @staticmethod
     def build_bounding_box(x, y, W, H):
@@ -109,8 +106,11 @@ class GazeFeaturesExtractor:
         Returns:
             tuple: A tuple containing the x-coordinate and y-coordinate of the gaze information.
 
+        Raises:
+            ValueError: If the file path is incorrect.
+
         """
-        random_gaze = False
+        center_gaze = False
         # print(f"---video_name: {video_name}, frame_number: {frame_number}")
         # print(f"---self.gaze_data_dir: {self.gaze_data_dir}")
         # print(f"current dir: {os.getcwd()}")
@@ -121,30 +121,25 @@ class GazeFeaturesExtractor:
         # Load the gaze information from the TXT file as a pandaframe
         gaze_info = pd.read_csv(file_path, sep="\t")
         
-        if 'Frame' not in gaze_info.columns:
-                print(f"video_name: {video_name}, frame_number: {frame_number}")
-                raise KeyError("Column 'Frame' not found in gaze_info")
-
         inds = gaze_info.index[gaze_info['Frame'] == frame_number].tolist()
         # print(f"inds: {inds}")
         if len(inds) == 0:
             counter = 0
             # use the next frame until find the gaze information
-            while len(inds) == 0 and random_gaze is False:
+            while len(inds) == 0 and center_gaze is False:
                 frame_number += 1
                 inds = gaze_info.index[gaze_info['Frame'] == frame_number].tolist()
                 counter += 1
                 if counter == 20:
-                    random_gaze = True
+                    center_gaze = True
                 # print(f"use the next frame: {frame_number}")
 
-        if random_gaze:
-            print("No gaze data found, use (0,0) point as gaze data")
-            print(f"video_name: {video_name}, frame_number: {frame_number}")
+        if center_gaze:
+            print("No gaze data found, use center point as gaze data")
             # center of the frame (160, 120) is (80, 60)
             # Normalize the center coordinates
-            x_cor = 0
-            y_cor = 0
+            x_cor = 0.5
+            y_cor = 0.5
         else:
             # read the x_cor and y_cor from the gaze_info
             # if there are multiple frames with the same frame number
@@ -202,13 +197,13 @@ class GazeFeaturesExtractor:
         torch.manual_seed(seed)  # 为CPU设置种子
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)  # 为所有GPU设置种子
-            torch.cuda.manual_seed_all(seed)  # 如果使用多GPU，为所有GPU设置种子
+            # torch.cuda.manual_seed_all(seed)  # 如果使用多GPU，为所有GPU设置种子
         torch.backends.cudnn.deterministic = True  # 保证每次返回的卷积算法是确定的，如果不设置的话，可能会因为选择的算法不同而导致每次网络前馈时结果略有差异
         torch.backends.cudnn.benchmark = False  # 当网络结构不变时，关闭优化，提高可复现性
 
     def process_frames(self, save_cropped_frames=False):
         """
-            Cropp the frames in 35x35 px and send in GazeNet() to get the gaze features(2048).
+            Cropp the frames in 150x150 px and send in GazeNet() to get the gaze features(2048).
 
             Args:
                 save_cropped_frames (bool, optional): Whether to save the cropped frames. Defaults to False.
@@ -223,45 +218,35 @@ class GazeFeaturesExtractor:
             x_cor, y_cor = self.read_gaze_info(video_name, frame_number)
             x_cor, y_cor = self.transform_coordinate(x_cor, y_cor)
 
-            # if the gaze data is not found, generate random gaze features
-            if x_cor == 0 and y_cor == 0:
-                gaze_feature = torch.rand(1, 2048)
+            # print(f"x_cor: {x_cor}, y_cor: {y_cor}")
+            cropped_image = self.load_and_crop_frame(frame_path, x_cor, y_cor)
 
-            else:
-                # print(f"x_cor: {x_cor}, y_cor: {y_cor}")
-                cropped_image = self.load_and_crop_frame(frame_path, x_cor, y_cor)
+            # Save the cropped frame if needed
+            if save_cropped_frames:
+                self.save_cropped_frame(cropped_image, os.path.join(self.output_dir, "cropped_frames", frame))
 
-                # Save the cropped frame if needed
-                if save_cropped_frames:
-                    self.save_cropped_frame(cropped_image, os.path.join(self.output_dir, "cropped_frames", frame))
+            # change the type of cropped_image to tensor
+            cropped_image = torch.from_numpy(cropped_image)
+            # change the shape of cropped_image to (Bachsize, Channel, Width, Height)
+            cropped_image = cropped_image.permute(2, 1, 0).contiguous()
+            cropped_image = cropped_image.unsqueeze(0)
+            cropped_image = cropped_image.float()
 
-                # change the type of cropped_image to tensor
-                cropped_image = torch.from_numpy(cropped_image)
-                # change the shape of cropped_image to (Bachsize, Channel, Width, Height)
-                cropped_image = cropped_image.permute(2, 1, 0).contiguous()
+            # Pad the cropped image to size bbox_hw x bbox_hw
+            cropped_image = torch.nn.functional.pad(cropped_image,
+                                                    (0, self.width - cropped_image.shape[3], 0, self.height - cropped_image.shape[2]))
+            # print(f"cropped_image shape: {cropped_image.shape}")
+            # ship the cropped image to GPU
+            cropped_image = cropped_image.cuda()
 
-                cropped_image = cropped_image.unsqueeze(0)
-                cropped_image = cropped_image.float()
-
-                # Pad the cropped image to size bbox_hw x bbox_hw
-                cropped_image = torch.nn.functional.pad(cropped_image,
-                                                        (0, self.width - cropped_image.shape[3], 0, self.height - cropped_image.shape[2]))
-                # print(f"cropped_image shape: {cropped_image.shape}")
-                # ship the cropped image to GPU
-                cropped_image = cropped_image.cuda()
-                # transform the cropped_image to [0, 1] and then use transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                cropped_image = cropped_image / 255.0
-                cropped_image = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(cropped_image)
-                
-    # normalize the cropped_image to [0, 1] and then use transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                self.set_seed(42)
-                with torch.no_grad():
-                    gaze_feature_generator = GazeNet()
-                    # print(gaze_feature_generator)
-                    # ship the gaze_feature_generator to GPU
-                    gaze_feature_generator.cuda()
-                    gaze_feature = gaze_feature_generator(cropped_image)
-            
+            self.set_seed(42)
+            with torch.no_grad():
+                gaze_feature_generator = GazeNet_const_weight()
+                # print(gaze_feature_generator)
+                # ship the gaze_feature_generator to GPU
+                gaze_feature_generator.cuda()
+                gaze_feature = gaze_feature_generator(cropped_image)
+            # print(f"frame: {frame}")
             # Save the gaze feature
             self.save_gaze_feature(gaze_feature, frame)
 
@@ -343,7 +328,7 @@ os.chdir("/scratch/users/lu/msc2024_mengze")
 
 # Extract gaze features
 start_time = time.time()
-extractor = GazeFeaturesExtractor(frames_dir="Frames_224/test_split1", gazepath_tosave="Extracted_Features_224/test_split1/gaze_v2")
+extractor = GazeFeaturesExtractor(frames_dir="Frames_224/train_split1", gazepath_tosave="Extracted_Features_224/train_split1/gaze")
 # videos = extractor.get_video_list()
 # print(f"videos: {videos[0]}")
 extractor.process_frames(save_cropped_frames=False)

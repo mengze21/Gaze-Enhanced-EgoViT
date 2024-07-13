@@ -1,119 +1,147 @@
+# -------------------------------------------
+# New training script for EgoviT_swinb model
+# frame is 224x224
+# -------------------------------------------
+
 import torch
 import os
 import datetime
 import time
 import torch.nn as nn
-from newT4 import GEgoviT
-from myDataset3 import ImageGazeDataset
-from torchvision.transforms import v2
 from torchvision import transforms
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler, autocast
+from torchvision.models.video import swin3d_b
+from EgoviT_swinb import EgoviT_swinb
+from myDataset import PreprocessedImageHODataset, PreprocessedImageGazeDataset, PreprocessedOnlyGazeDataset
+from torch.utils.tensorboard import SummaryWriter
 
 
+def save_checkpoint(state, checkpoint_dir, filename):
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    filepath = os.path.join(checkpoint_dir, filename)
+    torch.save(state, filepath)
 
-def model_train(image_folder, gaze_folder, label_folder, epochs, learning_rate, batch_size, transform=None, acc_path="transformer/train_result/accuracy_history.txt"):
 
+def train_one_epoch(model, train_loader, criterion, optimizer, scaler, device):
+    model.train()
+    total_acc_train = 0
+    total_loss_train = 0
+    total_batches = 0
+    total_samples = 0
+
+    for batch in tqdm(train_loader, desc="Training", leave=False):
+        images = batch['images'].to(device).float()
+        # features = batch['features'].to(device).float()
+        labels = batch['label'].to(device).long()
+
+        optimizer.zero_grad()
+
+        with autocast():
+            # only images
+            outputs = model(images)
+            # outputs = model(images, features)
+            loss = criterion(outputs, labels)
+        
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        acc = (outputs.argmax(1) == labels).sum().item()
+        total_acc_train += acc
+        total_loss_train += loss.item()
+        total_samples += labels.size(0)
+        total_batches += 1
+
+    avg_loss = total_loss_train / total_batches
+    avg_acc = total_acc_train / total_samples
+
+    return avg_loss, avg_acc
+
+
+def train(data_folder, epochs, learning_rate, batch_size, transform=None, acc_path="transformer/train_result/accuracy_history.txt", checkpoint_dir="checkpoints"):
     use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
+    device = torch.device("cuda:6" if use_cuda else "cpu")
 
-    # Load model, loss function, and optimizer
-    model = GEgoviT().to(device)
+    # Load pre-trained model Video Swin Transformer b
+    swin3d = swin3d_b(weights='KINETICS400_V1')
+    model = EgoviT_swinb(swin3d, G=4).to(device)
+
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     # Load batch data
-    train_dataset = ImageGazeDataset(image_folder, gaze_folder, label_folder, transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # train_dataset = PreprocessedImageHODataset(data_folder, transform=transform)
+    # train_dataset = PreprocessedImageGazeDataset(data_folder, transform=transform)
+    train_dataset =  PreprocessedOnlyGazeDataset(data_folder, transform=transform)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
-    today = datetime.datetime.now().strftime("%m%d")
-    acc_path = f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"
+    # Initialize GradScaler for mixed precision training
+    scaler = GradScaler()
 
-    # Fine tune the loop
+    # Initialize TensorBoard SummaryWriter
+    writer = SummaryWriter(log_dir=os.path.join(checkpoint_dir, 'tensorboard_logs'))
+
     for epoch in range(epochs):
-        epoch_start = time.time()
-        total_acc_train = 0
-        total_loss_train = 0.0
+        start_time = time.time()
 
-        for batch in tqdm(train_loader):
-            images = batch['images'].to(device)
-            if transform:
-                images = transform(images)
-            gazes = batch['features'].to(device)
-            labels = batch['label'].to(device)
+        avg_loss, avg_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device)
 
-            outputs = model(images, gazes)
-            loss = criterion(outputs, labels)
+        epoch_time = time.time() - start_time
+        print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, Accuracy: {avg_acc:.4f}, Time: {epoch_time:.2f}s")
 
-            acc = (outputs.argmax(1) == labels).sum().item()
-            total_acc_train += acc
-            total_loss_train += loss.item()
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-        
-        avg_loss = total_loss_train / len(train_loader)
-        avg_acc = total_acc_train / len(train_loader)
-
-        # Save accuracy to a text file
-        # Get today's date in a formatted string (YYYYMMDD)
-        # today = datetime.datetime.now().strftime("%m%d")
-        # Construct the new file path with the date
-        # acc_path = f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"
+        # Save accuracy and loss to file
         with open(acc_path, "a") as f:
             f.write(f"{epoch + 1} {avg_acc:.4f} {avg_loss:.4f}\n")
 
-        epoch_end = time.time()
-        epoch_time = (epoch_end - epoch_start) / 60
-        print(f"Epoch {epoch + 1}, Loss: {total_loss_train / len(train_loader)}, total_acc_train: {total_acc_train / len(train_loader)}, time: {epoch_time:.2f} min")
-    
-    # save checkpoint
-    model_save_dir = (f'/scratch/users/lu/msc2024_mengze/transformer/train_result/')
-    if not os.path.exists(model_save_dir):
-        os.makedirs(model_save_dir)
-    model_save_path = (model_save_dir + f'eEgoviT_EP{epochs}_{today}.pth')
-    checkpoint = {
-        'model': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        'epoch': epochs,
-        'learning_rate': learning_rate,
-        'batch_size': batch_size,
-        'loss': avg_loss,
-        'accuracy': avg_acc,
-        'acc_history': acc_path,
-    }
-    print(f"checkpoint keys: {checkpoint.keys()}")
-    torch.save(checkpoint, model_save_path)
+        # Log metrics to TensorBoard
+        writer.add_scalar('Loss/train', avg_loss, epoch + 1)
+        writer.add_scalar('Accuracy/train', avg_acc, epoch + 1)
 
-    return model, optimizer
+        # Save checkpoint
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'acc_path': acc_path,
+        }
+        checkpoint_filename = f'checkpoint_epoch_{epoch + 1}.pth'
+        save_checkpoint(checkpoint, checkpoint_dir, checkpoint_filename)
 
+    # # Final model saving
+    # final_model_path = os.path.join(checkpoint_dir, 'EgoviT_swinb_final.pth')
+    # save_checkpoint(checkpoint, checkpoint_dir, 'EgoviT_swinb_final.pth')
+
+    writer.close()
+
+    return None
+
+
+today = datetime.datetime.now().strftime("%m%d")
+acc_path = f"/scratch/lu/msc2024_mengze/transformer/train_result/accuracy_history_onlygaze_{today}.txt"
+checkpoint_dir = f"/scratch/lu/msc2024_mengze/transformer/train_result/checkpoints_onlygaze_{today}_HO"
 
 # Hyperparameters
-EPOCHS = 10
+EPOCHS = 15
 LEARNING_RATE = 0.00001
-BATCH_SIZE = 2
+BATCH_SIZE = 4
 
-# save the hyperparameters
-today = datetime.datetime.now().strftime("%m%d")
-
-# Check if the file exists, if not, create a new one
-if not os.path.exists(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt"):
-        with open(f"/scratch/users/lu/msc2024_mengze/transformer/train_result/accuracy_history_{today}.txt", "w") as f:
-            f.write(f"Epochs:{EPOCHS} Learning Rate:{LEARNING_RATE} Batch Size:{BATCH_SIZE}, Dataset:train_split1\n")
-            f.write(f"Epoch avg_acc avg_loss\n")
-
-# Train the model
-image_folder = '/scratch/users/lu/msc2024_mengze/Frames3/train_split1'
-gaze_folder = '/scratch/users/lu/msc2024_mengze/Extracted_HOFeatures/train_split1/combined_features'
-label_folder = '/scratch/users/lu/msc2024_mengze/dataset/train_split12.txt'
-
-# 图像预处理
-transforms = v2.Compose([
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+# transform = transforms.Compose([
+#     transforms.Resize((224, 224)),
+#     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+# ])
+transform = transforms.Compose([
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
+# Check if the file exists, if not, create a new one
+if not os.path.exists(acc_path):
+    with open(acc_path, "w") as f:
+        f.write(f"Epochs:{EPOCHS} Learning Rate:{LEARNING_RATE} Batch Size:{BATCH_SIZE} Dataset:train_split1 only gaze features Model:EgoviT_swinb\n")
+        f.write(f"Epoch avg_acc avg_loss\n")
 
-trained_model, optimizer = model_train(image_folder, gaze_folder, label_folder, EPOCHS, LEARNING_RATE, BATCH_SIZE, transform=transforms)
-
+# Training
+train(data_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/train_split1/only_gaze_features', 
+      epochs=EPOCHS, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, acc_path=acc_path, transform=transform, checkpoint_dir=checkpoint_dir)
