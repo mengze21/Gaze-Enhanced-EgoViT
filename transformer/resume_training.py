@@ -14,14 +14,14 @@ from EgoviT_swinb import EgoviT_swinb, EgoviT_swinb_v3, EgoviT_swinb_v4
 from myDataset_v2 import PreprocessedImageGazeDataset, PreprocessedOnlyGazeDataset
 from torch.utils.tensorboard import SummaryWriter
 
-# 保存检查点函数
+# Save checkpoint
 def save_checkpoint(state, checkpoint_dir, filename):
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
     filepath = os.path.join(checkpoint_dir, filename)
     torch.save(state, filepath)
 
-# 加载检查点函数
+# Load checkpoint
 def load_checkpoint(model, optimizer, scaler, checkpoint_path):
     if os.path.isfile(checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
@@ -35,7 +35,7 @@ def load_checkpoint(model, optimizer, scaler, checkpoint_path):
         print(f"No checkpoint found at {checkpoint_path}")
         return 0
 
-# 单个epoch的训练函数
+# Training for one epoch
 def train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, accumulation_steps):
     model.train()
     total_acc_train = 0
@@ -70,21 +70,21 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, a
 
     return avg_loss, avg_acc
 
-# 训练函数
+# Training function
 def train(data_folder, epochs, batch_size, learning_rate, accumulatino_steps=1, transform=None, acc_path=None, checkpoint_dir="checkpoints", resume_from_checkpoint=None, feature_type='G'):
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:1" if use_cuda else "cpu")
 
-    # 加载预训练模型
+    # Load pre-trained model
     swin3d = swin3d_b(weights='KINETICS400_V1')
     model = EgoviT_swinb_v4(swin3d, G=4).to(device)
 
     criterion = nn.CrossEntropyLoss().to(device)
     print(f"learning rate: {learning_rate}")
-    # 设置AdamW优化器，所有参数组使用相同的学习率
+    # Set up AdamW optimizer with the same learning rate for all parameter groups
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
-    # 数据加载
+    # Load dataset
     if feature_type == 'HO':
         train_dataset = PreprocessedImageHODataset(data_folder, transform=transform)
         print("Dataset contains head-object")
@@ -96,10 +96,10 @@ def train(data_folder, epochs, batch_size, learning_rate, accumulatino_steps=1, 
         print("Dataset contains only gaze")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
 
-    # 初始化GradScaler用于混合精度训练
+    # Initialize GradScaler for mixed precision training
     scaler = GradScaler()
 
-    # 初始化TensorBoard SummaryWriter
+    
     writer = SummaryWriter(log_dir=os.path.join(checkpoint_dir, 'tensorboard_logs'))
 
     start_epoch = 0
@@ -111,15 +111,15 @@ def train(data_folder, epochs, batch_size, learning_rate, accumulatino_steps=1, 
 
         print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, Accuracy: {avg_acc:.4f}")
 
-        # 保存准确率和损失到文件
+        # Save accuracy and loss to file
         with open(acc_path, "a") as f:
             f.write(f"{epoch + 1} {avg_acc:.4f} {avg_loss:.4f}\n")
 
-        # 记录到TensorBoard
+        # TensorBoard
         writer.add_scalar('Loss/train', avg_loss, epoch + 1)
         writer.add_scalar('Accuracy/train', avg_acc, epoch + 1)
 
-        # 保存检查点
+        # Save checkpoint
         checkpoint = {
             'epoch': epoch + 1,
             'model_state_dict': model.state_dict(),
@@ -134,14 +134,14 @@ def train(data_folder, epochs, batch_size, learning_rate, accumulatino_steps=1, 
 
     return None
 
-# 获取当前日期
+
 today = datetime.datetime.now().strftime("%m%d")
 # data features type
 feature_type = 'GHO'
 acc_path = f"/scratch/lu/msc2024_mengze/transformer/train_result/EgoviT_swinb_v4n_lr1e5_{feature_type}_preweights_newg_{today}.txt"
 checkpoint_dir = f"/scratch/lu/msc2024_mengze/transformer/train_result/EgoviT_swinb_v4n_lr1e5_preweights_{feature_type}_newg_{today}"
 
-# 超参数
+# Hyperparameters
 EPOCHS =25
 BATCH_SIZE = 4
 LEARNING_RATE = 0.00001
@@ -151,12 +151,12 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
-# 检查文件是否存在，如果不存在则创建新文件
+
 if not os.path.exists(acc_path):
     with open(acc_path, "w") as f:
         f.write(f"Epochs:{EPOCHS} Learning Rate: {LEARNING_RATE} Batch Size:{BATCH_SIZE} {feature_type} Model:EgoviT_swinb new gaze weights='KINETICS400_V1' G=4\n")
         f.write(f"Epoch avg_acc avg_loss\n")
 
-# 训练 
+# Train 
 train(data_folder='/scratch/lu/msc2024_mengze/Extracted_Features_224/train_split1/all', 
       epochs=EPOCHS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, acc_path=acc_path, transform=transform, checkpoint_dir=checkpoint_dir, accumulatino_steps=1, resume_from_checkpoint=None, feature_type=feature_type)
