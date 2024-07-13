@@ -1,7 +1,7 @@
 # folder
 .DS_Store
 .idea
-/gaze_dataset
+# /gaze_dataset
 .vscode
 __pycache__
 Extracted_HOFeatures
