@@ -1,6 +1,14 @@
+# -----------------------------------------------------------------------
+# This script is used to extract gaze data from folder gaze_data
+# The gaze data is normalized and filtered
+# Columns in txt file are xCoord, yCoord, Frame, and LEventInfo(Fixation)
+# -----------------------------------------------------------------------
+
 import numpy as np
 import pandas as pd
 import os
+import time
+import sys
 import tkinter as tk
 from tkinter import filedialog
 
@@ -97,6 +105,34 @@ def norm_filter_gaze(x, y, resolution, status_value):
     return px, py, status_value
 
 
+def filter_gaze(x, y, resolution, status_value):
+    """
+    Post-processing:
+
+    1.Filter out of bound gaze points
+
+    If gaze point outside gaze_resolution, change the gaze status from 'Fixation' to 'Truncated'
+    Args:
+        x: gaze_x (width)
+        y: gaze_y (height)
+        resolution: gaze_resolution_x
+        status_value: Status of gaze
+    Returns: filted gaze_x, gaze_y and gaze status
+    """
+    px = x
+    py = y
+
+    # truncate the gaze points
+    if (px < 0 or px > (resolution[1] - 1) or
+            py < 0 or py > (resolution[0]-1)):
+        status_value = 'Truncated'
+
+    px = min(max(0, px), resolution[1] - 1)
+    py = min(max(0, py), resolution[0] - 1)
+
+    return px, py, status_value
+
+
 def parse_gaze(file_path, gaze_resolution=None):
     """
     Return the data as a pandas dataFrame
@@ -134,16 +170,18 @@ def parse_gaze(file_path, gaze_resolution=None):
     # (note: there are two names 'L Event Info' and 'B Evnet Info')
     last_column_name = gaze_data.columns[-1]
     gaze_data = gaze_data[['xCoord', 'yCoord', 'Frame', last_column_name]]
-
+    # print(gaze_data.head())
     # post-processing
     # apply normalization and filter function on columns 'xCoord' 'yCoord'
-    # if gaze point outside gaze_resolution, change the gaze status from 'Fixation' to 'Truncated'
+    # if gaze point outside gaze_resolution, change the gaze status from 'Fixation' or 'saccade' to 'Truncated'
     gaze_data[['xCoord', 'yCoord', last_column_name]] = gaze_data.apply(
         lambda row: norm_filter_gaze(row['xCoord'], row['yCoord'], gaze_resolution, row[last_column_name]),
         axis=1, result_type='expand')
 
-    # select the gaze info only with 'Fixation'
-    gaze_data = gaze_data[gaze_data[last_column_name] == 'Fixation']
+    # select the gaze info only with 'Fixation' and 'Saccade'
+    gaze_data = gaze_data[gaze_data[last_column_name].isin(['Fixation', 'Saccade'])]
+    # gaze_data = gaze_data[gaze_data[last_column_name] != 'Blink']
+    # gaze_data = gaze_data[gaze_data[last_column_name] == 'Fixation']
 
     return gaze_data
 
@@ -156,9 +194,12 @@ def extract_and_save_files(input_folder, output_folder):
 
     # Create the target folder if it does not exist
     os.makedirs(output_folder, exist_ok=True)
-
+    file_count = 1
     for file_path in gaze_files:
-        print(f"processing file: {file_path}")
+        sys.stdout.write(f"\rprocessing file: {file_count}/{len(gaze_files)}")
+        sys.stdout.flush()
+        # time.sleep(0.1)
+        # print(f"processing file: {file_path}")
         extracted_gaze = parse_gaze(file_path)
 
         # Creating a path for a new file
@@ -167,7 +208,7 @@ def extract_and_save_files(input_folder, output_folder):
 
         # save the gaze data as a .txt file
         extracted_gaze.to_csv(output_file_path, sep='\t', index=False)
-
+        file_count += 1
 
 def check_processed_file(folder1, folder2):
     """
@@ -192,15 +233,15 @@ def check_processed_file(folder1, folder2):
     count2 = len(files2)
 
     if count1 == count2:
-        print("all data are proceed")
+        print("\nall data are proceed")
     elif count1 > count2:
         num = count1 - count2
-        print(f"There are {num} files not processed")
+        print(f"\nThere are {num} files not processed")
 
 
 def main():
-    source_folder = "EGTA_Gaze+/gaze_data/gaze_data"
-    target_folder = "project/data_processing/extracted_gaze_data"
+    source_folder = "gaze_dataset/gaze_data/gaze_data"
+    target_folder = "gaze_preprocessing/ExtractedGaze_fix_sac"
     extract_and_save_files(source_folder, target_folder)
     check_processed_file(source_folder, target_folder)
 
