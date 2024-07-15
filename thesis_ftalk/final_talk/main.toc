@@ -1,0 +1,9 @@
+\beamer@sectionintoc {1}{Introduction}{2}{0}{1}
+\beamer@sectionintoc {2}{Related Works}{7}{0}{2}
+\beamer@subsectionintoc {2}{1}{Video Swin Transformer}{8}{0}{2}
+\beamer@subsectionintoc {2}{2}{Vision Transformer EgoViT}{10}{0}{2}
+\beamer@sectionintoc {3}{Gaze Enhanced EgoViT}{13}{0}{3}
+\beamer@subsectionintoc {3}{1}{Gaze Enhanced EgoViT Structure}{14}{0}{3}
+\beamer@subsectionintoc {3}{2}{Key Components}{16}{0}{3}
+\beamer@sectionintoc {4}{Experiments and Results}{20}{0}{4}
+\beamer@sectionintoc {5}{Conclusion and Future Works}{31}{0}{5}

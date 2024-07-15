@@ -1,0 +1,196 @@
+%\documentclass[xcolor={dvipsnames},graphics]{beamer}
+
+\usetheme[
+progressbar=frametitle,
+titleformat=regular,
+numbering=counter,
+sectionpage=progressbar,
+subsectionpage=progressbar,
+progressbar=foot, % frametitle,head
+block=fill
+]{metropolis}
+
+\usepackage{appendixnumberbeamer} %Fixes appendix numbering
+%\usepackage{subcaption}
+\usepackage[skins,most]{tcolorbox} %Used in header
+\usepackage{xspace}
+\usepackage{graphicx}
+\usepackage[usenames,dvipsnames]{xcolor}
+\usepackage{listings}% To typeset programming code
+\lstset{
+  basicstyle=\ttfamily,
+  mathescape
+}
+
+
+% https://tex.stackexchange.com/questions/369758/how-can-i-edit-the-progress-bar-in-beamer-from-a-template-theme/369852#369852
+\makeatletter
+\setlength{\metropolis@progressinheadfoot@linewidth}{2pt}
+\makeatother
+
+\definecolor{PUIblue}{HTML}{265077}
+\definecolor{PUIlightblue}{HTML}{657C9D}
+\definecolor{PUIorange}{HTML}{F0AD4E}
+\definecolor{PUIgray}{HTML}{F1F0EC}
+
+\setbeamercolor{frametitle}{parent=structure,bg=PUIblue,fg=white}
+\setbeamercolor{background canvas}{bg=white}
+\setbeamercolor{block title example}{fg=white,bg=PUIblue}
+\setbeamercolor{block body example}{fg=white,bg=PUIlightblue}
+
+\setbeamerfont{frametitle}{size=\small}
+\setbeamerfont{bibliography item}{size=\scriptsize}
+\setbeamerfont{bibliography entry author}{size=\scriptsize}
+\setbeamerfont{bibliography entry title}{size=\scriptsize}
+\setbeamerfont{bibliography entry location}{size=\scriptsize}
+\setbeamerfont{bibliography entry note}{size=\scriptsize}
+\setbeamerfont{section in toc}{family=\bfseries}
+
+% new caption format
+\setlength\abovecaptionskip{-6pt}
+\setlength\belowcaptionskip{-5pt}
+\setbeamerfont{caption}{size=\tiny}
+\setbeamertemplate{caption}{\raggedright \scalebox{.8}{\textcolor{Gray}{Source: \insertcaption}\par}}
+\newcommand{\rotatedcaption}[1]{\rotatebox{90}{\tiny \scalebox{0.8}{\textcolor{Gray}{Source: {#1}}}}}
+%\newcommand{\rotatedcaption}[2]{\rotatebox{90}{\tiny \scalebox{0.8}{\parbox{{#2}}{\textcolor{Gray}{Source: {#1}}}}}}
+
+\setbeamertemplate{toc subsection itemsep}{\vspace{2ex}}
+
+
+\settowidth{\leftmargini}{\usebeamertemplate{itemize item}}
+\addtolength{\leftmargini}{\labelsep}
+%\setbeamersize{text margin left=1cm,text margin right=1cm} 
+
+% customize citations
+\usepackage{natbib}
+\renewcommand{\bibsection}{}
+\setcitestyle{authoryear,round,open={[},close={]}}
+
+% show small symbol next to urls
+\usepackage{fontawesome}
+\usepackage{hyperref}
+\let\orighref\href
+\renewcommand{\href}[2]{\orighref{#1}{#2\,~{\tiny \faExternalLink}}}
+
+% https://tex.stackexchange.com/questions/225736/latex-beamer-define-itemsep-globally
+\usepackage{xpatch}
+\makeatletter
+\newcommand{\my@beamer@setsep}{%
+\ifnum\@itemdepth=1\relax
+     \setlength\itemsep{\my@beamer@itemsepi}% separation for first level
+   \else
+     \ifnum\@itemdepth=2\relax
+       \setlength\itemsep{\my@beamer@itemsepii}% separation for second level
+       \setlength\topsep{\my@beamer@itemsepii}% separation for second level
+     \else
+       \ifnum\@itemdepth=3\relax
+         \setlength\itemsep{\my@beamer@itemsepiii}% separation for third level
+         \setlength\topsep{\my@beamer@itemsepiii}% separation for second level
+   \fi\fi\fi}
+\newlength{\my@beamer@itemsepi}\setlength{\my@beamer@itemsepi}{2ex}
+\newlength{\my@beamer@itemsepii}\setlength{\my@beamer@itemsepii}{1ex}
+\newlength{\my@beamer@itemsepiii}\setlength{\my@beamer@itemsepiii}{1ex}
+\newcommand\setlistsep[3]{%
+    \setlength{\my@beamer@itemsepi}{#1}%
+    \setlength{\my@beamer@itemsepii}{#2}%
+    \setlength{\my@beamer@itemsepiii}{#3}%
+}
+\xpatchcmd{\itemize}
+  {\def\makelabel}
+  {\my@beamer@setsep\def\makelabel}
+ {}
+ {}
+
+\xpatchcmd{\beamer@enum@}
+  {\def\makelabel}
+  {\my@beamer@setsep\def\makelabel}
+ {}
+ {}
+\makeatother
+
+% redefine columns environment
+% https://tex.stackexchange.com/questions/204022/make-onlytextwidth-default-width-of-columns
+\makeatletter
+\long\def\beamer@newenvnoopt#1#2#3#4{%
+    \expandafter\renewcommand\expandafter<\expandafter>\csname#1\endcsname[#2]{#3}%<- here
+    \expandafter\long\expandafter\def\csname end#1\endcsname{#4}%
+}
+\long\def\beamer@newenvopt#1#2[#3]#4#5{%
+    \expandafter\renewcommand\expandafter<\expandafter>\csname#1\endcsname[#2][#3]{#4}%<- here
+    \expandafter\long\expandafter\def\csname end#1\endcsname{#5}%
+}
+
+\renewenvironment<>{columns}[1][]{%
+    \begin{actionenv}#2%
+        \def\beamer@colentrycode{%
+            \hbox to\textwidth\bgroup%
+            \leavevmode%
+            \hskip-\beamer@leftmargin%
+            \nobreak%
+            \beamer@tempdim=\textwidth%
+            \advance\beamer@tempdim by\beamer@leftmargin%
+            \advance\beamer@tempdim by\beamer@rightmargin%
+            \hbox to\beamer@tempdim\bgroup%
+            \hbox{}\hfill\ignorespaces}%
+        \def\beamer@colexitcode{\egroup%
+            \nobreak%
+            \hskip-\beamer@rightmargin\egroup}%
+        \ifbeamer@centered\setkeys{beamer@col}{c}\else\setkeys{beamer@col}{t}\fi%
+        \setkeys{beamer@col}{#1, onlytextwidth}% added "onlytextwidth"
+        \par%
+        \beamer@colentrycode%
+        \def\beamer@colclose{}\ignorespaces}%
+    {\beamer@colclose\def\beamer@colclose{}\beamer@colexitcode\end{actionenv}}%
+\makeatother
+
+% TIKZ defaults
+\tikzset{basic/.style={draw,fill=PUIblue!20,text width=1em,text badly centered}}
+\tikzset{input/.style={basic,circle}}
+\tikzset{weights/.style={basic,rectangle}}
+\tikzset{functions/.style={basic,circle,fill=PUIlightblue!10}}
+
+% change title page
+\setbeamertemplate{title page}{
+\begin{minipage}[b][\paperheight]{\textwidth}
+    \ifx\inserttitlegraphic\@empty\else\usebeamertemplate*{title graphic}\fi
+    \vfill%
+    \ifx\inserttitle\@empty\else\usebeamertemplate*{title}\fi
+    \ifx\insertsubtitle\@empty\else\usebeamertemplate*{subtitle}\fi
+    \usebeamertemplate*{title separator}
+    \ifx\beamer@shortauthor\@empty\else\usebeamertemplate*{author}\fi
+    \ifx\insertdate\@empty\else\usebeamertemplate*{date}\fi
+    \ifx\insertinstitute\@empty\else\usebeamertemplate*{institute}\fi
+%    \vfill
+    \vspace*{1cm}
+%    \vspace*{1mm}
+\end{minipage}
+}
+
+%%%%%%%%%%%%%ENTER TITLE AND AUTHOR HERE%%%%%%%%%%%%%%%%%%
+\title{Gaze-based Transformer for Improving Action Recognition in Egocentric Videos}
+\subtitle{Master Thesis}
+\date{\today}
+%\date{\lectureyear}
+\author{Mengze Lu}
+\institute{Perceptual User Interfaces Group, University of Stuttgart\\[0.1cm] \href{https://www.perceptualui.org/}{www.perceptualui.org}}
+\titlegraphic{
+\hfill
+\includegraphics[height=0.6cm]{assets/PUI_color3.png}
+\hspace{0.4cm}
+%\includegraphics[height=0.6cm]{ellis_logo.png}
+%\hspace{0.4cm}
+\includegraphics[height=0.7cm]{assets/USTUTT_logo.pdf}
+}
+
+% https://tex.stackexchange.com/questions/6185/absolute-positioning-in-beamer
+\logo{
+\begin{tikzpicture}[overlay,remember picture]
+\node[anchor=south west,yshift=0.2cm,xshift=0.2cm] at (current page.south west){
+    \includegraphics[height=0.7cm]{assets/PUI.png}
+};
+\end{tikzpicture}
+}
+
+\begin{document}
+
+\maketitle
