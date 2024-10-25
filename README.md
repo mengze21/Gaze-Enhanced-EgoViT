@@ -1,9 +1,24 @@
 # Gaze Enhanced EgoViT
-This is the code for the master thesis *Gaze-based Transformer for Improving Action Recognition in Egocentric Videos*.
+This code is the implementation of the master thesis ***Gaze-based Transformer for Improving Action Recognition in Egocentric Videos***.
 
-![method](assets/structure.png)
+
 ## Introduction
-This repo is a PyTorch implementation of our Gaze Enhanced EgoViT.
+This repo is a PyTorch implementation of Gaze Enhanced EgoViT (egocentric vision Transformer).
+
+**The Gaze Enhanced EgoViT** builds upon the original EgoViT architecture by incorporating gaze information to improve egocentric action recognition. The EgoViT model, introduced by Pan in the paper [EgoViT: Pyramid Video Transformer for Egocentric Action Recognition](http://arxiv.org/abs/2303.08920), leverages a vision transformer structure to understand actions in egocentric video effectively. The Hand and Object Detector (HOD) module detects and identifies hands and objects that are being interacted with ind the scene. The detected hand and object information is processed through subsequent layers of the model, alongside the video frame data.
+
+The Gaze Enhanced EgoViT extends this approach by incorporating gaze data, which provides additional context about the user’s focus within the scene. Gaze information is extracted using a Gaze Feature Extractor and then fused with the detected hand and object information. This enriched set of features is processed through subsequent layers of the model, allowing the transformer-based architecture to learn more nuanced patterns and improve performance in egocentric action recognition tasks. Figure 1 illustrates the structure of Gaze Enhanced EgoViT.
+
+<!--![method](assets/structure.png)
+*Figure 1: Structure of Gaze Enhanced EgoViT*-->
+
+<p align="center">
+  <img src="assets/structure.png" alt="Figure 1: Structure of Gaze Enhanced EgoViT">
+</p>
+
+<p align="center">
+  <em>Figure 1: Structure of Gaze Enhanced EgoViT</em>
+</p>
 
 A pretrained HOD module is used in this project, which is available at [hand-object detector](https://github.com/ddshan/hand_object_detector).
 
