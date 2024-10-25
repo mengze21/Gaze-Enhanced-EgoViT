@@ -13,7 +13,7 @@ The Gaze Enhanced EgoViT extends this approach by incorporating gaze data, which
 *Figure 1: Structure of Gaze Enhanced EgoViT*-->
 
 <p align="center">
-  <img src="assets/structure.png" alt="Figure 1: Structure of Gaze Enhanced EgoViT">
+  <img src="assets/structure.png" alt="Figure 1: Structure of Gaze Enhanced EgoViT" height="160">
 </p>
 
 <p align="center">
